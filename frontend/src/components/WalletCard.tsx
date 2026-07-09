@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { Wallet } from '@/types';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -10,10 +9,11 @@ interface WalletCardProps {
 }
 
 const TYPE_LABELS: Record<string, string> = {
-  bank: 'Bank',
-  ewallet: 'E-Wallet',
-  cash: 'Cash',
-  other: 'Other',
+  bank: 'Bank', ewallet: 'E-Wallet', cash: 'Cash', other: 'Other',
+};
+const BANK_LABELS: Record<string, string> = {
+  bca: 'BCA', permata: 'Permata', jago: 'Jago', stockbit: 'Stockbit',
+  dana: 'Dana', shopee: 'ShopeePay', ovo: 'OVO', bibit: 'Bibit', gopay: 'GoPay',
 };
 
 function WalletIcon({ type }: { type: string }) {
@@ -44,20 +44,18 @@ function WalletIcon({ type }: { type: string }) {
 
 function EditIcon() {
   return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
       <path d="M11 2a1.4 1.4 0 0 1 2 2L5 12l-3 1 1-3z" />
     </svg>
   );
 }
 function TrashIcon() {
   return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
       <path d="M2 4h12M5 4V2h6v2M6 7v5M10 7v5M3 4l1 10h8l1-10" />
     </svg>
   );
 }
-
-const BANK_LABELS: Record<string, string> = { bca: 'BCA', permata: 'Permata', jago: 'Jago', stockbit: 'Stockbit', dana: 'Dana', shopee: 'ShopeePay' };
 
 export default function WalletCard({ wallet, onEdit, onDelete }: WalletCardProps) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -68,133 +66,148 @@ export default function WalletCard({ wallet, onEdit, onDelete }: WalletCardProps
   };
 
   const isNeg = wallet.balance < 0;
-  const color = wallet.color || '#04395e';
+  const color = wallet.color || 'var(--laccent)';
+  const colorRgb = wallet.color ? hexToRgb(wallet.color) : null;
+  const glowColor = colorRgb
+    ? `rgba(${colorRgb}, 0.20)`
+    : 'var(--accent-soft)';
 
   return (
     <>
       <div
         className="glass glass-card"
         style={{
-          padding: '18px 20px',
-          display: 'flex', flexDirection: 'column', gap: 14,
-          minHeight: 148, position: 'relative', overflow: 'hidden',
+          display: 'flex', flexDirection: 'column',
+          minHeight: 158, position: 'relative', overflow: 'hidden',
         }}
       >
-        {/* Decorative radial glow */}
+        {/* Decorative radial background glow */}
         <div style={{
-          position: 'absolute', top: -30, right: -30,
-          width: 140, height: 140, borderRadius: '50%',
+          position: 'absolute', top: -20, right: -20,
+          width: 160, height: 160, borderRadius: '50%',
           background: isNeg
-            ? 'radial-gradient(circle, var(--neg-soft), transparent 70%)'
-            : `radial-gradient(circle, rgba(${hexToRgb(color)},0.12), transparent 70%)`,
+            ? 'radial-gradient(circle, var(--neg-soft), transparent 75%)'
+            : `radial-gradient(circle, ${colorRgb ? `rgba(${colorRgb}, 0.36)` : 'oklch(0.68 0.18 188 / 0.36)'}, transparent 65%)`,
           pointerEvents: 'none',
         }} />
 
-        {/* Header: icon + name + type chip */}
-        <div style={{
-          display: 'flex', alignItems: 'flex-start',
-          justifyContent: 'space-between', gap: 10, position: 'relative',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
-            <div style={{
-              width: 34, height: 34, borderRadius: 10, flexShrink: 0,
-              background: 'rgba(3,29,68,0.04)', border: '1px solid var(--glass-border)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: color,
-            }}>
-              {wallet.icon
-                ? <span style={{ fontSize: 18 }}>{wallet.icon}</span>
-                : <WalletIcon type={wallet.type} />}
-            </div>
-            <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ padding: '16px 18px 18px', display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
+          {/* Header */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, position: 'relative' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0, flex: 1 }}>
+              {/* Icon circle */}
               <div style={{
-                fontSize: 13.5, fontWeight: 500, color: 'var(--fg)',
-                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                width: 32, height: 32, borderRadius: 9, flexShrink: 0,
+                background: 'var(--card-border)',
+                border: '1px solid var(--card-border)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: wallet.color || 'var(--laccent)',
               }}>
-                {wallet.name}
+                {wallet.icon
+                  ? <span style={{ fontSize: 17 }}>{wallet.icon}</span>
+                  : <WalletIcon type={wallet.type} />}
               </div>
-              <div style={{
-                fontSize: 11.5, color: 'var(--fg-faint)', marginTop: 3,
-                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-              }}>
-                {TYPE_LABELS[wallet.type] || wallet.type}
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{
+                  fontSize: 13.5, fontWeight: 600, color: 'var(--fg)',
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                }}>
+                  {wallet.name}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--fg-faint)', marginTop: 2 }}>
+                  {TYPE_LABELS[wallet.type] || wallet.type}
+                </div>
               </div>
             </div>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5, alignItems: 'flex-end', flexShrink: 0 }}>
-            <span className="chip">{TYPE_LABELS[wallet.type] || wallet.type}</span>
-            {wallet.bank_type && (
-              <span className="chip" style={{ fontSize: 10, background: 'rgba(4,57,94,0.08)', color: 'var(--laccent)', borderColor: 'rgba(4,57,94,0.18)' }}>
-                {BANK_LABELS[wallet.bank_type]}
+
+            {/* Bank / type chip */}
+            {(wallet.bank_type || wallet.type) && (
+              <span className="chip chip-accent" style={{ fontSize: 10, flexShrink: 0 }}>
+                {wallet.bank_type ? BANK_LABELS[wallet.bank_type] ?? wallet.bank_type : TYPE_LABELS[wallet.type] ?? wallet.type}
               </span>
             )}
           </div>
-        </div>
 
-        {/* Balance */}
-        <div style={{
-          display: 'flex', alignItems: 'center',
-          justifyContent: 'space-between', gap: 8, position: 'relative',
-        }}>
-          <div
-            className="num"
-            style={{
-              fontSize: 'clamp(17px, 4cqi + 6px, 22px)',
-              fontWeight: 600,
-              letterSpacing: '-.02em',
-              color: isNeg ? 'var(--neg)' : 'var(--fg)',
-              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-            }}
-          >
-            {formatCurrency(wallet.balance)}
-          </div>
-          {wallet.gain_pct != null && (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0 }}>
-              <span style={{
-                fontSize: 13, fontWeight: 600,
-                color: wallet.gain_pct >= 0 ? 'var(--pos)' : 'var(--neg)',
-              }}>
-                {wallet.gain_pct >= 0 ? '+' : ''}{wallet.gain_pct.toFixed(2)}%
-              </span>
-              {wallet.gain_amt != null && (
-                <span style={{ fontSize: 10.5, opacity: 0.8, color: wallet.gain_pct >= 0 ? 'var(--pos)' : 'var(--neg)' }}>
-                  {wallet.gain_amt >= 0 ? '+' : ''}{formatCurrency(wallet.gain_amt)}
-                </span>
-              )}
+          {/* Balance */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, position: 'relative' }}>
+            <div
+              className="num"
+              style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: 'clamp(16px, 3.5cqi + 6px, 21px)',
+                fontWeight: 700,
+                letterSpacing: '-0.025em',
+                color: isNeg ? 'var(--neg)' : 'var(--fg)',
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              }}
+            >
+              {formatCurrency(wallet.balance)}
             </div>
-          )}
-        </div>
 
-        {/* Actions */}
-        <div style={{ display: 'flex', gap: 8, position: 'relative', marginTop: 'auto', flexWrap: 'wrap' }}>
-          <button
-            onClick={() => onEdit(wallet)}
-            style={{
-              flex: 1, height: 32, borderRadius: 999,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-              background: 'rgba(255,255,255,0.6)', border: '1px solid var(--glass-border)',
-              color: 'var(--fg-muted)', fontSize: 12, fontWeight: 500, cursor: 'pointer',
-              transition: 'all 0.15s',
-            }}
-            onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--glass-border-hi)')}
-            onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--glass-border)')}
-          >
-            <EditIcon /> Edit
-          </button>
-          <button
-            onClick={() => setShowDeleteConfirm(true)}
-            style={{
-              flex: 1, height: 32, borderRadius: 999,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-              background: 'rgba(255,255,255,0.6)', border: '1px solid var(--glass-border)',
-              color: 'var(--neg)', fontSize: 12, fontWeight: 500, cursor: 'pointer',
-              transition: 'all 0.15s',
-            }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'var(--neg-soft)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.6)')}
-          >
-            <TrashIcon /> Delete
-          </button>
+            {wallet.gain_pct != null && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0 }}>
+                <span style={{
+                  fontSize: 12.5, fontWeight: 700,
+                  color: wallet.gain_pct >= 0 ? 'var(--pos)' : 'var(--neg)',
+                }}>
+                  {wallet.gain_pct >= 0 ? '+' : ''}{wallet.gain_pct.toFixed(2)}%
+                </span>
+                {wallet.gain_amt != null && (
+                  <span className="num" style={{
+                    fontSize: 10.5,
+                    color: wallet.gain_pct >= 0 ? 'var(--pos)' : 'var(--neg)',
+                    opacity: 0.80,
+                  }}>
+                    {wallet.gain_amt >= 0 ? '+' : ''}{formatCurrency(wallet.gain_amt)}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div style={{ display: 'flex', gap: 7, marginTop: 'auto', flexWrap: 'wrap' }}>
+            <button
+              onClick={() => onEdit(wallet)}
+              style={{
+                flex: 1, height: 30, borderRadius: 8,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                background: 'transparent', border: '1px solid var(--card-border)',
+                color: 'var(--fg-muted)', fontSize: 11.5, fontWeight: 500, cursor: 'pointer',
+                transition: 'border-color 0.12s, color 0.12s',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.borderColor = 'var(--laccent)';
+                e.currentTarget.style.color = 'var(--laccent)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.borderColor = 'var(--card-border)';
+                e.currentTarget.style.color = 'var(--fg-muted)';
+              }}
+            >
+              <EditIcon /> Edit
+            </button>
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              style={{
+                flex: 1, height: 30, borderRadius: 8,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                background: 'transparent', border: '1px solid var(--card-border)',
+                color: 'var(--neg)', fontSize: 11.5, fontWeight: 500, cursor: 'pointer',
+                transition: 'background 0.12s, border-color 0.12s',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = 'var(--neg-soft)';
+                e.currentTarget.style.borderColor = 'var(--neg)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.borderColor = 'var(--card-border)';
+              }}
+            >
+              <TrashIcon /> Delete
+            </button>
+          </div>
         </div>
       </div>
 

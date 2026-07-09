@@ -1,10 +1,7 @@
-
 import { FinancialSummary } from '@/types';
 
 interface FinancialSummaryProps {
   summary: FinancialSummary;
-  initialBalance?: number;
-  onEditInitialBalance?: () => void;
 }
 
 function fmt(n: number) {
@@ -13,195 +10,173 @@ function fmt(n: number) {
   return `${sign}Rp ${abs.toLocaleString('id-ID')}`;
 }
 
-function SummaryCard({
-  label,
-  value,
-  hint,
-  tone,
-  onEdit,
-  icon,
-}: {
+function fmtCompact(n: number) {
+  const abs = Math.abs(n);
+  const sign = n < 0 ? '-' : '';
+  if (abs >= 1_000_000_000) return `${sign}Rp ${(abs / 1_000_000_000).toFixed(1)}B`;
+  if (abs >= 1_000_000) return `${sign}Rp ${(abs / 1_000_000).toFixed(1)}M`;
+  return fmt(n);
+}
+
+interface StatCardProps {
   label: string;
   value: number;
   hint?: string;
-  tone: 'neutral' | 'pos' | 'neg';
-  onEdit?: () => void;
+  accent: string;     // vivid accent CSS value (color of strip, icon, number)
+  accentSoft: string; // low-opacity tint for bg glow
   icon: React.ReactNode;
-}) {
-  const valueColor = tone === 'pos' ? 'var(--pos)' : tone === 'neg' ? 'var(--neg)' : 'var(--fg)';
-  const bgGradient =
-    tone === 'pos'
-      ? 'radial-gradient(120% 80% at 0% 0%, var(--pos-soft), transparent 55%)'
-      : tone === 'neg'
-      ? 'radial-gradient(120% 80% at 0% 0%, var(--neg-soft), transparent 55%)'
-      : 'radial-gradient(120% 80% at 0% 0%, rgba(3,29,68,0.04), transparent 55%)';
+}
 
+function StatCard({ label, value, hint, accent, accentSoft, icon }: StatCardProps) {
   return (
     <div
       className="glass glass-card"
       style={{
         display: 'flex', flexDirection: 'column', gap: 14,
-        position: 'relative', overflow: 'hidden', padding: '20px 22px',
+        padding: '20px 22px',
+        position: 'relative', overflow: 'hidden',
       }}
     >
-      {/* Inner radial tint */}
-      <div style={{ position: 'absolute', inset: 0, background: bgGradient, pointerEvents: 'none' }} />
+      {/* Background gradient glow */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        background: `radial-gradient(110% 90% at 100% 100%, color-mix(in oklch, ${accent} 17%, transparent), transparent 65%)`,
+        pointerEvents: 'none',
+      }} />
 
-      {/* Header */}
+      {/* Header row */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative' }}>
         <span className="eyebrow">{label}</span>
         <div style={{
           width: 30, height: 30, borderRadius: 9,
-          background: 'rgba(3,29,68,0.04)', border: '1px solid var(--glass-border)',
+          background: `color-mix(in oklch, ${accent} 17%, transparent)`,
+          border: `1px solid color-mix(in oklch, ${accent} 30%, transparent)`,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: 'var(--fg-muted)',
+          color: accent,
         }}>
           {icon}
         </div>
       </div>
 
       {/* Value */}
-      <div
-        className="num"
-        style={{
-          fontSize: 'clamp(18px, 2.4cqi + 12px, 30px)',
-          fontWeight: 600,
-          letterSpacing: '-.02em',
-          color: valueColor,
-          position: 'relative',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-        }}
-      >
-        {fmt(value)}
+      <div style={{
+        fontFamily: 'var(--font-display)',
+        fontSize: 'clamp(17px, 2.4cqi + 10px, 28px)',
+        fontWeight: 700,
+        letterSpacing: '-0.025em',
+        color: accent,
+        lineHeight: 1.1,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        position: 'relative',
+      }}>
+        {fmtCompact(value)}
       </div>
 
-      {/* Footer */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative' }}>
-        {hint && <span style={{ fontSize: 12, color: 'var(--fg-subtle)' }}>{hint}</span>}
-        {onEdit && (
-          <button
-            onClick={onEdit}
-            className="chip chip-accent"
-            style={{ cursor: 'pointer', border: 'none', background: 'var(--accent-soft)' }}
-          >
-            ✏ Edit
-          </button>
-        )}
-      </div>
+      {/* Hint */}
+      {hint && (
+        <span style={{ fontSize: 11.5, color: 'var(--fg-faint)', marginTop: -6, position: 'relative' }}>
+          {hint}
+        </span>
+      )}
     </div>
   );
 }
 
-export default function FinancialSummaryComponent({
-  summary,
-  initialBalance = 0,
-  onEditInitialBalance,
-}: FinancialSummaryProps) {
+export default function FinancialSummaryComponent({ summary }: FinancialSummaryProps) {
   const savings = summary.totalIncome - summary.totalExpense;
-  const currentBalance = initialBalance + savings;
-
-  const cards = [
-    {
-      label: 'Initial Balance',
-      value: initialBalance,
-      tone: 'neutral' as const,
-      onEdit: onEditInitialBalance,
-      icon: <IconWallet />,
-    },
-    {
-      label: 'Income',
-      value: summary.totalIncome,
-      tone: 'pos' as const,
-      icon: <IconArrowDown />,
-    },
-    {
-      label: 'Expense',
-      value: summary.totalExpense,
-      tone: 'neg' as const,
-      icon: <IconArrowUp />,
-    },
-    {
-      label: 'Savings',
-      value: savings,
-      tone: savings >= 0 ? ('pos' as const) : ('neg' as const),
-      hint: summary.totalIncome > 0
-        ? `${((savings / summary.totalIncome) * 100).toFixed(1)}% rate`
-        : undefined,
-      icon: <IconPiggy />,
-    },
-  ];
+  const savingsRate = summary.totalIncome > 0
+    ? ((savings / summary.totalIncome) * 100).toFixed(1)
+    : null;
 
   return (
-    <div style={{ display: 'grid', gap: 16 }}>
-      {/* Four summary cards */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Three stat cards */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-        gap: 16,
+        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+        gap: 12,
       }}>
-        {cards.map(c => (
-          <SummaryCard key={c.label} {...c} />
-        ))}
+        <StatCard
+          label="Income"
+          value={summary.totalIncome}
+          accent="var(--laccent)"
+          accentSoft="var(--accent-soft)"
+          icon={<IconArrowDown />}
+        />
+        <StatCard
+          label="Expense"
+          value={summary.totalExpense}
+          accent="var(--neg)"
+          accentSoft="var(--neg-soft)"
+          icon={<IconArrowUp />}
+        />
+        <StatCard
+          label="Savings"
+          value={savings}
+          hint={savingsRate ? `${savingsRate}% savings rate` : undefined}
+          accent="var(--pos)"
+          accentSoft="var(--pos-soft)"
+          icon={<IconPiggy />}
+        />
       </div>
 
-      {/* Current balance — full-width */}
+      {/* Net Flow — full-width accent card */}
       <div
         className="glass glass-card"
         style={{
-          padding: '26px 28px',
-          display: 'grid',
-          gridTemplateColumns: 'minmax(0,1fr)',
+          padding: '22px 26px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
           gap: 16,
+          flexWrap: 'wrap',
           position: 'relative',
           overflow: 'hidden',
         }}
       >
+        {/* Subtle teal glow */}
         <div style={{
           position: 'absolute', inset: 0,
-          background: 'radial-gradient(60% 100% at 100% 50%, var(--accent-soft), transparent 70%)',
+          background: 'radial-gradient(55% 90% at 100% 50%, var(--accent-soft), transparent 70%)',
           pointerEvents: 'none',
         }} />
+
+        {/* Left: label + big number */}
         <div style={{ position: 'relative' }}>
-          <span className="eyebrow">Current Balance · Initial + Savings</span>
-          <div style={{
-            display: 'flex', alignItems: 'baseline', gap: 14, marginTop: 10, flexWrap: 'wrap',
-          }}>
-            <div
-              className="num"
-              style={{
-                fontSize: 'clamp(28px, 4vw, 48px)',
-                fontWeight: 600,
-                letterSpacing: '-.025em',
-                lineHeight: 1,
-                color: currentBalance >= 0 ? 'var(--fg)' : 'var(--neg)',
-              }}
-            >
-              {fmt(currentBalance)}
+          <span className="eyebrow">Net Flow</span>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
+            <div style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 'clamp(24px, 4vw, 42px)',
+              fontWeight: 700,
+              letterSpacing: '-0.030em',
+              lineHeight: 1,
+              color: savings >= 0 ? 'var(--fg)' : 'var(--neg)',
+            }}>
+              {fmt(savings)}
             </div>
             <span className={savings >= 0 ? 'chip chip-pos' : 'chip chip-neg'}>
-              {savings >= 0 ? '↑' : '↓'} {fmt(Math.abs(savings))} saved
+              {savings >= 0 ? '↑ surplus' : '↓ deficit'}
             </span>
           </div>
-          <div style={{
-            display: 'flex', gap: 20, marginTop: 12,
-            color: 'var(--fg-subtle)', fontSize: 12.5, flexWrap: 'wrap',
-          }}>
-            <span>
-              <span style={{ color: 'var(--fg-muted)' }}>Income </span>
-              <span className="num" style={{ color: 'var(--pos)' }}>{fmt(summary.totalIncome)}</span>
-            </span>
-            <span style={{ color: 'var(--glass-border-hi)' }}>·</span>
-            <span>
-              <span style={{ color: 'var(--fg-muted)' }}>Expense </span>
-              <span className="num" style={{ color: 'var(--neg)' }}>{fmt(summary.totalExpense)}</span>
-            </span>
-            <span style={{ color: 'var(--glass-border-hi)' }}>·</span>
-            <span>
-              <span style={{ color: 'var(--fg-muted)' }}>Started with </span>
-              <span className="num">{fmt(initialBalance)}</span>
-            </span>
+        </div>
+
+        {/* Right: breakdown */}
+        <div style={{
+          display: 'flex', gap: 24,
+          color: 'var(--fg-muted)', fontSize: 12.5, flexWrap: 'wrap',
+          position: 'relative',
+        }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={{ color: 'var(--fg-faint)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Income</span>
+            <span className="num" style={{ color: 'var(--pos)', fontWeight: 600, fontSize: 14 }}>{fmt(summary.totalIncome)}</span>
+          </div>
+          <div style={{ width: 1, background: 'var(--card-border)', alignSelf: 'stretch' }} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={{ color: 'var(--fg-faint)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Expense</span>
+            <span className="num" style={{ color: 'var(--neg)', fontWeight: 600, fontSize: 14 }}>{fmt(summary.totalExpense)}</span>
           </div>
         </div>
       </div>
@@ -209,32 +184,23 @@ export default function FinancialSummaryComponent({
   );
 }
 
-/* ── Icons ─────────────────────────────────────────────────────────────── */
-function IconWallet() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="4" width="12" height="9" rx="1.5" />
-      <path d="M11 8.5h2" />
-    </svg>
-  );
-}
 function IconArrowDown() {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M8 3v9M4.5 8.5 8 12l3.5-3.5" />
     </svg>
   );
 }
 function IconArrowUp() {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M8 13V4M4.5 7.5 8 4l3.5 3.5" />
     </svg>
   );
 }
 function IconPiggy() {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M2.5 9c0-2.2 2-4 4.5-4h3c2.5 0 4.5 1.8 4.5 4 0 1.4-.8 2.7-2 3.4V14h-2v-1h-3v1H5.5v-1.6C3.8 11.7 2.5 10.4 2.5 9z" />
       <circle cx="11" cy="8" r=".5" fill="currentColor" />
     </svg>

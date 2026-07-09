@@ -33,8 +33,77 @@ const WALLET_TYPES = [
     { value: 'other', label: 'Other', icon: '💰', color: '#8b5cf6' },
 ] as const;
 
-const ICON_OPTIONS = ['🏦', '💳', '💵', '💰', '💸', '🪙', '💴', '💶', '💷', '💲', '📱', '🏪', '🏧'];
-const COLOR_OPTIONS = ['#3b82f6', '#10b981', '#059669', '#8b5cf6', '#ec4899', '#f59e0b', '#ef4444', '#6366f1'];
+const ICON_OPTIONS = [
+    // Money & banking
+    '🏦', '💳', '💵', '💰', '💸', '🪙', '💴', '💶', '💷', '💲', '🏧', '🧾',
+    // Life & spending
+    '🏠', '🚗', '✈️', '🛒', '🍔', '☕', '🎁', '💊', '📚', '🎮',
+    '🎵', '🏋️', '🎯', '💼', '📱', '🌿', '🐷', '💎', '🌟', '🔑',
+    // Fun & extra
+    '🦊', '🏆', '⚡', '🌈', '🎪', '🌙', '🏪', '🎨', '🚀', '🌺',
+];
+
+const COLOR_OPTIONS = [
+    // Blues
+    '#1d4ed8', '#3b82f6', '#06b6d4', '#0891b2',
+    // Greens
+    '#166534', '#059669', '#10b981', '#84cc16',
+    // Purples & pinks
+    '#7c3aed', '#8b5cf6', '#a855f7', '#ec4899',
+    // Reds & oranges
+    '#991b1b', '#ef4444', '#f97316', '#f59e0b',
+    // Teals & slates
+    '#14b8a6', '#6366f1', '#64748b', '#0f172a',
+];
+
+function hexToRgb(hex: string): string {
+    const clean = hex.replace('#', '');
+    const full = clean.length === 3 ? clean.split('').map(c => c + c).join('') : clean.padEnd(6, '0');
+    const n = parseInt(full.slice(0, 6), 16);
+    if (isNaN(n)) return '4,57,94';
+    return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
+}
+
+function MiniCard({ icon, name, color }: { icon: string; name: string; color: string }) {
+    const rgb = hexToRgb(color);
+    return (
+        <div style={{
+            borderRadius: 12, padding: '12px 14px',
+            background: 'var(--glass)',
+            border: '1px solid var(--card-border)',
+            backdropFilter: 'blur(12px)',
+            position: 'relative', overflow: 'hidden',
+            display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+            <div style={{
+                position: 'absolute', top: -20, right: -20,
+                width: 90, height: 90, borderRadius: '50%',
+                background: `radial-gradient(circle, rgba(${rgb},0.28), transparent 75%)`,
+                pointerEvents: 'none',
+            }} />
+            <div style={{
+                width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+                background: 'rgba(3,29,68,0.04)', border: '1px solid var(--card-border)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color, fontSize: 16,
+            }}>
+                {icon || '🏦'}
+            </div>
+            <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>
+                    {name || 'Wallet Name'}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--fg-faint)' }}>Preview</div>
+            </div>
+            <div style={{
+                marginLeft: 'auto', fontSize: 13, fontWeight: 600,
+                color: 'var(--fg)', flexShrink: 0,
+            }}>
+                Rp 0
+            </div>
+        </div>
+    );
+}
 
 export default function WalletForm({ wallet, isOpen, onClose, onSubmit, userId }: WalletFormProps) {
     const [name, setName] = useState('');
@@ -42,8 +111,7 @@ export default function WalletForm({ wallet, isOpen, onClose, onSubmit, userId }
     const [balance, setBalance] = useState('');
     const [icon, setIcon] = useState('');
     const [color, setColor] = useState('');
-    const [bankType, setBankType] = useState<'bca' | 'permata' | 'jago' | 'stockbit' | 'dana' | 'shopee' | ''>('');
-    const [accountNumber, setAccountNumber] = useState('');
+    const [bankType, setBankType] = useState<'bca' | 'permata' | 'jago' | 'stockbit' | 'dana' | 'shopee' | 'ovo' | 'bibit' | 'gopay' | ''>('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
@@ -52,11 +120,9 @@ export default function WalletForm({ wallet, isOpen, onClose, onSubmit, userId }
             setType(wallet.type);
             setBalance(wallet.balance.toString());
             setIcon(wallet.icon || '');
-            setColor(wallet.color || '');
+            setColor(wallet.color || COLOR_OPTIONS[1]);
             setBankType((wallet.bank_type as any) || '');
-            setAccountNumber(wallet.account_number || '');
         } else {
-            // Set defaults for new wallet
             const defaultType = WALLET_TYPES[0];
             setName('');
             setType('bank');
@@ -64,7 +130,6 @@ export default function WalletForm({ wallet, isOpen, onClose, onSubmit, userId }
             setIcon(defaultType.icon);
             setColor(defaultType.color);
             setBankType('');
-            setAccountNumber('');
         }
     }, [wallet, isOpen]);
 
@@ -80,7 +145,6 @@ export default function WalletForm({ wallet, isOpen, onClose, onSubmit, userId }
     const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         setIsSubmitting(true);
-
         try {
             await onSubmit({
                 user_id: userId,
@@ -90,11 +154,10 @@ export default function WalletForm({ wallet, isOpen, onClose, onSubmit, userId }
                 icon: icon || undefined,
                 color: color || undefined,
                 bank_type: bankType || null,
-                account_number: accountNumber.trim() || null,
+                account_number: null,
             } as any);
             handleClose();
-        } catch (error) {
-            console.error('Error submitting wallet:', error);
+        } catch {
             alert('Failed to save wallet');
         } finally {
             setIsSubmitting(false);
@@ -108,9 +171,10 @@ export default function WalletForm({ wallet, isOpen, onClose, onSubmit, userId }
         setIcon('');
         setColor('');
         setBankType('');
-        setAccountNumber('');
         onClose();
     };
+
+    const activeColor = color || '#3b82f6';
 
     return (
         <Dialog open={isOpen} onOpenChange={handleClose}>
@@ -120,6 +184,9 @@ export default function WalletForm({ wallet, isOpen, onClose, onSubmit, userId }
                 </DialogHeader>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
+                    {/* Live preview */}
+                    <MiniCard icon={icon} name={name} color={activeColor} />
+
                     {/* Wallet Name */}
                     <div className="space-y-2">
                         <label className="text-sm font-medium">Wallet Name *</label>
@@ -163,17 +230,22 @@ export default function WalletForm({ wallet, isOpen, onClose, onSubmit, userId }
 
                     {/* Icon Picker */}
                     <div className="space-y-2">
-                        <label className="text-sm font-medium">Icon (optional)</label>
-                        <div className="flex flex-wrap gap-2">
+                        <label className="text-sm font-medium">Icon</label>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                             {ICON_OPTIONS.map((i) => (
                                 <button
                                     key={i}
                                     type="button"
                                     onClick={() => setIcon(i)}
-                                    className={`w-10 h-10 rounded-lg border-2 text-xl transition-all ${icon === i
-                                            ? 'border-primary bg-primary/10 scale-110'
-                                            : 'border-gray-200 hover:border-primary/50'
-                                        }`}
+                                    style={{
+                                        width: 38, height: 38, borderRadius: 9, fontSize: 20,
+                                        border: `2px solid ${icon === i ? activeColor : 'var(--card-border)'}`,
+                                        background: icon === i ? `rgba(${hexToRgb(activeColor)},0.12)` : 'rgba(255,255,255,0.5)',
+                                        cursor: 'pointer',
+                                        transform: icon === i ? 'scale(1.15)' : 'scale(1)',
+                                        transition: 'all 0.12s',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    }}
                                 >
                                     {i}
                                 </button>
@@ -183,31 +255,35 @@ export default function WalletForm({ wallet, isOpen, onClose, onSubmit, userId }
 
                     {/* Color Picker */}
                     <div className="space-y-2">
-                        <label className="text-sm font-medium">Color (optional)</label>
-                        <div className="flex flex-wrap gap-2">
+                        <label className="text-sm font-medium">Color</label>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 6 }}>
                             {COLOR_OPTIONS.map((c) => (
                                 <button
                                     key={c}
                                     type="button"
                                     onClick={() => setColor(c)}
-                                    className={`w-10 h-10 rounded-lg border-2 transition-all ${color === c
-                                            ? 'border-gray-900 dark:border-white scale-110'
-                                            : 'border-gray-200'
-                                        }`}
-                                    style={{ backgroundColor: c }}
+                                    style={{
+                                        aspectRatio: '1', borderRadius: 8,
+                                        background: c,
+                                        border: color === c ? `3px solid white` : '2px solid transparent',
+                                        boxShadow: color === c ? `0 0 0 2px ${c}` : 'none',
+                                        cursor: 'pointer',
+                                        transform: color === c ? 'scale(1.15)' : 'scale(1)',
+                                        transition: 'all 0.12s',
+                                    }}
                                 />
                             ))}
                         </div>
                     </div>
 
-                    {/* Bank Type (for statement import) */}
+                    {/* Bank Type */}
                     <div className="space-y-2">
                         <label className="text-sm font-medium">Bank (for statement import)</label>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                            {(['', 'bca', 'permata', 'jago', 'stockbit', 'dana', 'shopee'] as const).map(bt => {
+                            {(['', 'bca', 'permata', 'jago', 'stockbit', 'dana', 'shopee', 'ovo', 'bibit', 'gopay'] as const).map(bt => {
                                 const labels: Record<string, string> = {
                                     '': 'None', bca: 'BCA', permata: 'Permata', jago: 'Jago',
-                                    stockbit: 'Stockbit', dana: 'Dana', shopee: 'Shopee',
+                                    stockbit: 'Stockbit', dana: 'Dana', shopee: 'Shopee', ovo: 'OVO', bibit: 'Bibit', gopay: 'GoPay',
                                 };
                                 const active = bankType === bt;
                                 return (
@@ -217,11 +293,11 @@ export default function WalletForm({ wallet, isOpen, onClose, onSubmit, userId }
                                         onClick={() => setBankType(bt as any)}
                                         style={{
                                             height: 30, padding: '0 12px', borderRadius: 999,
-                                            background: active ? 'var(--laccent)' : 'rgba(255,255,255,0.6)',
+                                            background: active ? activeColor : 'rgba(255,255,255,0.6)',
                                             color: active ? '#fff' : 'var(--fg-muted)',
-                                            border: `1px solid ${active ? 'var(--laccent)' : 'var(--glass-border)'}`,
+                                            border: `1px solid ${active ? activeColor : 'var(--card-border)'}`,
                                             fontSize: 12, fontWeight: 500, cursor: 'pointer',
-                                            whiteSpace: 'nowrap',
+                                            whiteSpace: 'nowrap', transition: 'all 0.12s',
                                         }}
                                     >
                                         {labels[bt]}
@@ -230,25 +306,6 @@ export default function WalletForm({ wallet, isOpen, onClose, onSubmit, userId }
                             })}
                         </div>
                     </div>
-
-                    {/* Account Number */}
-                    {bankType && (
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium">
-                                Account Number{' '}
-                                <span style={{ fontWeight: 400, color: 'var(--fg-faint)' }}>(optional)</span>
-                            </label>
-                            <Input
-                                value={accountNumber}
-                                onChange={e => setAccountNumber(e.target.value)}
-                                placeholder="e.g. 4290910523"
-                                className="glass-input"
-                            />
-                            <p style={{ fontSize: 11, color: 'var(--fg-faint)', marginTop: 2 }}>
-                                Transfers are auto-detected using your name. Add an account number only if your statement uses it instead.
-                            </p>
-                        </div>
-                    )}
 
                     <DialogFooter>
                         <Button type="button" variant="outline" onClick={handleClose}>

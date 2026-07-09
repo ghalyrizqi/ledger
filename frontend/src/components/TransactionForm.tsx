@@ -26,6 +26,8 @@ interface TransactionFormProps {
   onCategoriesChange?: () => void;
 }
 
+type Tab = 'income' | 'expense' | 'transfer' | 'investment';
+
 function Field({ label, children, full }: { label: string; children: React.ReactNode; full?: boolean }) {
   return (
     <label style={{
@@ -51,39 +53,64 @@ export default function TransactionForm({
   onSubmit,
   onCategoriesChange,
 }: TransactionFormProps) {
+  const [tab, setTab] = useState<Tab>('expense');
+  const [subDir, setSubDir] = useState<'expense' | 'income'>('expense');
   const [formData, setFormData] = useState({
     type: 'expense' as 'income' | 'expense',
     amount: '',
     category: '',
     description: '',
     date: new Date().toISOString().split('T')[0],
+    is_transfer: 0 as 0 | 1,
   });
   const [categories, setCategories] = useState<Category[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const needsCategory = tab === 'income' || tab === 'expense';
+  const activeType = (tab === 'income' || tab === 'expense') ? tab : subDir;
+
   useEffect(() => {
-    if (isOpen && userId) loadCategories();
-  }, [isOpen, userId, formData.type]);
+    if (isOpen && userId && needsCategory) loadCategories();
+  }, [isOpen, userId, activeType, needsCategory]);
 
   const loadCategories = async () => {
     try {
-      setCategories(await getCategories(userId, formData.type));
+      setCategories(await getCategories(userId, activeType));
     } catch { /* silent */ }
   };
 
   useEffect(() => {
-    if (transaction) {
-      setFormData({
-        type: transaction.type,
-        amount: transaction.amount.toString(),
-        category: transaction.category,
-        description: transaction.description || '',
-        date: transaction.date,
-      });
-    } else {
-      setFormData({ type: 'expense', amount: '', category: '', description: '', date: new Date().toISOString().split('T')[0] });
+    if (!transaction) {
+      setTab('expense');
+      setSubDir('expense');
+      setFormData({ type: 'expense', amount: '', category: '', description: '', date: new Date().toISOString().split('T')[0], is_transfer: 0 });
+      return;
     }
+    const isTransfer = transaction.is_transfer === 1;
+    const isInvest = isTransfer && transaction.category === 'Investment';
+    const isInternal = isTransfer && !isInvest;
+    const resolvedTab: Tab = isInvest ? 'investment' : isInternal ? 'transfer' : transaction.type;
+    setTab(resolvedTab);
+    setSubDir(transaction.type);
+    setFormData({
+      type: transaction.type,
+      amount: transaction.amount.toString(),
+      category: transaction.category,
+      description: transaction.description || '',
+      date: transaction.date,
+      is_transfer: isTransfer ? 1 : 0,
+    });
   }, [transaction, isOpen]);
+
+  useEffect(() => {
+    if (tab === 'income' || tab === 'expense') {
+      setFormData(f => ({ ...f, type: tab, is_transfer: 0, category: '' }));
+    } else if (tab === 'transfer') {
+      setFormData(f => ({ ...f, type: subDir, is_transfer: 1, category: 'Internal Transfer' }));
+    } else {
+      setFormData(f => ({ ...f, type: subDir, is_transfer: 1, category: 'Investment' }));
+    }
+  }, [tab, subDir]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,6 +123,7 @@ export default function TransactionForm({
         category: formData.category,
         description: formData.description,
         date: formData.date,
+        is_transfer: formData.is_transfer,
       });
       onClose();
     } catch {
@@ -107,17 +135,25 @@ export default function TransactionForm({
 
   const inputStyle: React.CSSProperties = {
     height: 44, padding: '0 14px', borderRadius: 12,
-    background: 'rgba(255,255,255,0.7)', border: '1px solid var(--glass-border)',
+    background: 'var(--card-bg)', border: '1px solid var(--card-border)',
     color: 'var(--fg)', fontSize: 14, outline: 'none', width: '100%',
     fontFamily: 'inherit',
   };
 
   const tabStyle = (active: boolean): React.CSSProperties => ({
     flex: 1, height: 32, borderRadius: 999,
-    background: active ? '#ffffff' : 'transparent',
+    background: active ? 'var(--card)' : 'transparent',
     color: active ? 'var(--fg)' : 'var(--fg-muted)',
-    boxShadow: active ? '0 1px 2px rgba(3,29,68,0.10), 0 0 0 1px var(--glass-border)' : 'none',
-    border: 0, fontSize: 13, fontWeight: 500, cursor: 'pointer',
+    boxShadow: active ? 'var(--card-shadow), 0 0 0 1px var(--card-border)' : 'none',
+    border: 0, fontSize: 12, fontWeight: 500, cursor: 'pointer',
+    transition: 'all 0.15s',
+  });
+
+  const miniTabStyle = (active: boolean): React.CSSProperties => ({
+    flex: 1, height: 28, borderRadius: 999,
+    background: active ? 'var(--laccent)' : 'transparent',
+    color: active ? '#fff' : 'var(--fg-muted)',
+    border: 0, fontSize: 12, fontWeight: 500, cursor: 'pointer',
     transition: 'all 0.15s',
   });
 
@@ -130,7 +166,7 @@ export default function TransactionForm({
               <div>
                 <span className="eyebrow">{transaction ? 'Edit transaction' : 'New transaction'}</span>
                 <DialogTitle style={{ fontSize: 18, fontWeight: 400, color: 'var(--fg)', marginTop: 4, letterSpacing: '-.01em' }}>
-                  {transaction ? 'Update the details' : 'Add an expense or income'}
+                  {transaction ? 'Update the details' : 'Create a new transaction'}
                 </DialogTitle>
               </div>
             </div>
@@ -139,15 +175,30 @@ export default function TransactionForm({
             </DialogDescription>
           </DialogHeader>
 
-          {/* Type segmented */}
+          {/* 4-tab segmented */}
           <div className="seg" style={{ marginTop: 16, width: '100%', borderRadius: 12 }}>
-            <button style={tabStyle(formData.type === 'expense')} onClick={() => setFormData(f => ({ ...f, type: 'expense' }))}>
-              Expense
-            </button>
-            <button style={tabStyle(formData.type === 'income')} onClick={() => setFormData(f => ({ ...f, type: 'income' }))}>
-              Income
-            </button>
+            <button style={tabStyle(tab === 'income')}     onClick={() => setTab('income')}>Income</button>
+            <button style={tabStyle(tab === 'expense')}    onClick={() => setTab('expense')}>Expense</button>
+            <button style={tabStyle(tab === 'transfer')}   onClick={() => setTab('transfer')}>Transfer</button>
+            <button style={tabStyle(tab === 'investment')} onClick={() => setTab('investment')}>Investment</button>
           </div>
+
+          {/* Direction sub-toggle for Transfer & Investment */}
+          {(tab === 'transfer' || tab === 'investment') && (
+            <div className="seg" style={{ marginTop: 8, width: '100%', borderRadius: 10, background: 'var(--surface-subtle)', padding: 3 }}>
+              {tab === 'transfer' ? (
+                <>
+                  <button style={miniTabStyle(subDir === 'expense')} onClick={() => setSubDir('expense')}>→ Kirim</button>
+                  <button style={miniTabStyle(subDir === 'income')}  onClick={() => setSubDir('income')}>← Terima</button>
+                </>
+              ) : (
+                <>
+                  <button style={miniTabStyle(subDir === 'expense')} onClick={() => setSubDir('expense')}>Beli / Top-up</button>
+                  <button style={miniTabStyle(subDir === 'income')}  onClick={() => setSubDir('income')}>Jual / Cairkan</button>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -182,33 +233,35 @@ export default function TransactionForm({
               />
             </Field>
 
-            {/* Category */}
-            <Field label="Category" full>
-              <Select
-                value={formData.category}
-                onValueChange={v => setFormData(f => ({ ...f, category: v }))}
-              >
-                <SelectTrigger style={{ ...inputStyle, display: 'flex', alignItems: 'center' }}>
-                  <SelectValue placeholder="Select a category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map(cat => (
-                    <SelectItem key={cat.id} value={cat.name}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{
-                          width: 22, height: 22, borderRadius: 6,
-                          background: cat.color || 'var(--accent-soft)',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12,
-                        }}>
-                          {cat.icon || '💰'}
-                        </span>
-                        {cat.name}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
+            {/* Category — only for Income / Expense */}
+            {needsCategory && (
+              <Field label="Category" full>
+                <Select
+                  value={formData.category}
+                  onValueChange={v => setFormData(f => ({ ...f, category: v }))}
+                >
+                  <SelectTrigger style={{ ...inputStyle, display: 'flex', alignItems: 'center' }}>
+                    <SelectValue placeholder="Select a category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.map(cat => (
+                      <SelectItem key={cat.id} value={cat.name}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{
+                            width: 22, height: 22, borderRadius: 6,
+                            background: cat.color || 'var(--accent-soft)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12,
+                          }}>
+                            {cat.icon || '💰'}
+                          </span>
+                          {cat.name}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
 
             {/* Description */}
             <Field label="Description (optional)" full>
@@ -226,7 +279,7 @@ export default function TransactionForm({
           <div style={{
             display: 'flex', justifyContent: 'flex-end', gap: 10,
             padding: '12px 24px 24px',
-            borderTop: '1px solid var(--glass-border)',
+            borderTop: '1px solid var(--card-border)',
             marginTop: 4,
           }}>
             <button
@@ -235,7 +288,7 @@ export default function TransactionForm({
               disabled={isSubmitting}
               style={{
                 height: 38, padding: '0 18px', borderRadius: 999,
-                background: 'rgba(255,255,255,0.6)', border: '1px solid var(--glass-border)',
+                background: 'var(--card-bg)', border: '1px solid var(--card-border)',
                 color: 'var(--fg)', fontSize: 13, fontWeight: 500, cursor: 'pointer',
               }}
             >

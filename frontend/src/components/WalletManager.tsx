@@ -4,10 +4,10 @@ import { Wallet } from '@/types';
 import { getWallets, createWallet, updateWallet, deleteWallet } from '@/lib/api';
 import WalletCard from './WalletCard';
 import WalletForm from './WalletForm';
-import StatementImportModal from './StatementImportModal';
 
 interface WalletManagerProps {
   userId: number;
+  refreshTrigger?: number;
 }
 
 function PlusIcon() {
@@ -18,14 +18,13 @@ function PlusIcon() {
   );
 }
 
-export default function WalletManager({ userId }: WalletManagerProps) {
+export default function WalletManager({ userId, refreshTrigger }: WalletManagerProps) {
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingWallet, setEditingWallet] = useState<Wallet | undefined>();
-  const [isImportOpen, setIsImportOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => { loadWallets(); }, [userId]);
+  useEffect(() => { loadWallets(); }, [userId, refreshTrigger]);
 
   const loadWallets = async () => {
     setIsLoading(true);
@@ -63,17 +62,6 @@ export default function WalletManager({ userId }: WalletManagerProps) {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button
-            onClick={() => setIsImportOpen(true)}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              height: 32, padding: '0 14px', borderRadius: 999,
-              background: 'rgba(255,255,255,0.6)', border: '1px solid var(--glass-border)',
-              color: 'var(--fg-muted)', fontSize: 12, fontWeight: 500, cursor: 'pointer',
-            }}
-          >
-            ↑ Import Statement
-          </button>
-          <button
             onClick={() => setIsFormOpen(true)}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -109,7 +97,7 @@ export default function WalletManager({ userId }: WalletManagerProps) {
         }}>
           <div style={{
             width: 48, height: 48, borderRadius: 14,
-            background: 'rgba(3,29,68,0.04)', border: '1px solid var(--glass-border)',
+            background: 'var(--card-bg)', border: '1px solid var(--card-border)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             color: 'var(--fg-faint)', marginBottom: 14,
           }}>
@@ -161,14 +149,6 @@ export default function WalletManager({ userId }: WalletManagerProps) {
         userId={userId}
       />
 
-      {isImportOpen && (
-        <StatementImportModal
-          wallets={wallets}
-          userId={userId}
-          onClose={() => setIsImportOpen(false)}
-          onDone={loadWallets}
-        />
-      )}
     </div>
   );
 }

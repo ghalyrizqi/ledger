@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { MonthlyAnalytics } from '@/types';
 import { getMonthlyAnalytics, getAvailableYears } from '@/lib/api';
 import MonthlyChart from './MonthlyChart';
+import CashflowLineChart from './CashflowLineChart';
 
 interface DashboardProps {
   userId: number;
@@ -13,6 +14,7 @@ export default function Dashboard({ userId }: DashboardProps) {
   const [availableYears, setAvailableYears] = useState<number[]>([]);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [isLoading, setIsLoading] = useState(true);
+  const [chartType, setChartType] = useState<'bar' | 'line'>('line');
 
   useEffect(() => { loadAvailableYears(); }, [userId]);
   useEffect(() => { if (selectedYear) loadAnalytics(); }, [userId, selectedYear]);
@@ -45,27 +47,50 @@ export default function Dashboard({ userId }: DashboardProps) {
         <div>
           <span className="eyebrow">Cashflow</span>
           <div style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-.01em', color: 'var(--fg)', marginTop: 4 }}>
-            Income vs. expense
+            {chartType === 'line' ? 'Income · Expense · Savings' : 'Income · Expense · Investment'}
           </div>
         </div>
 
-        {/* Year picker */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {availableYears.map(y => (
-            <button
-              key={y}
-              onClick={() => setSelectedYear(y)}
-              style={{
-                height: 30, padding: '0 14px', borderRadius: 999,
-                background: y === selectedYear ? '#fff' : 'transparent',
-                color: y === selectedYear ? 'var(--fg)' : 'var(--fg-muted)',
-                boxShadow: y === selectedYear ? '0 1px 2px rgba(3,29,68,0.10), 0 0 0 1px var(--glass-border)' : 'none',
-                border: 0, fontSize: 12, fontWeight: 500, cursor: 'pointer',
-              }}
-            >
-              {y}
-            </button>
-          ))}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {/* Chart type toggle */}
+          <div className="seg" style={{ borderRadius: 999 }}>
+            {(['line', 'bar'] as const).map(type => (
+              <button
+                key={type}
+                onClick={() => setChartType(type)}
+                style={{
+                  height: 28, padding: '0 14px', borderRadius: 999,
+                  background: chartType === type ? 'var(--card)' : 'transparent',
+                  color: chartType === type ? 'var(--fg)' : 'var(--fg-muted)',
+                  boxShadow: chartType === type ? 'var(--card-shadow), 0 0 0 1px var(--card-border)' : 'none',
+                  border: 0, fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                  transition: 'all 0.15s', textTransform: 'capitalize',
+                }}
+              >
+                {type === 'line' ? 'Line' : 'Bar'}
+              </button>
+            ))}
+          </div>
+
+          {/* Year picker */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {availableYears.map(y => (
+              <button
+                key={y}
+                onClick={() => setSelectedYear(y)}
+                style={{
+                  height: 28, padding: '0 12px', borderRadius: 999,
+                  background: y === selectedYear ? 'var(--card)' : 'transparent',
+                  color: y === selectedYear ? 'var(--fg)' : 'var(--fg-muted)',
+                  boxShadow: y === selectedYear ? 'var(--card-shadow), 0 0 0 1px var(--card-border)' : 'none',
+                  border: 0, fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {y}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -81,7 +106,9 @@ export default function Dashboard({ userId }: DashboardProps) {
           }} />
         </div>
       ) : analytics ? (
-        <MonthlyChart data={analytics.months} />
+        chartType === 'line'
+          ? <CashflowLineChart data={analytics.months} />
+          : <MonthlyChart data={analytics.months} />
       ) : null}
     </div>
   );

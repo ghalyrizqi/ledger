@@ -31,7 +31,7 @@ export class CategoriesController {
     }
 
     @Delete(':id')
-    remove(@Param('id') id: string) {
-        this.categoriesService.remove(parseInt(id));
+    async remove(@Param('id') id: string) {
+        await this.categoriesService.remove(parseInt(id));
     }
 }

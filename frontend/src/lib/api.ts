@@ -186,6 +186,19 @@ export const previewStatement = async (
     return response.data;
 };
 
+export const autoPreviewStatement = async (
+    userId: number,
+    files: File[],
+): Promise<{ rows: ParsedTx[]; meta: PreviewMeta; detectedBank: string; walletId: number; walletName: string; walletIcon?: string }> => {
+    const form = new FormData();
+    files.forEach(f => form.append('files', f));
+    form.append('userId', String(userId));
+    const response = await api.post('/import/auto-preview', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+};
+
 export const confirmImport = async (
     userId: number,
     rows: ParsedTx[],

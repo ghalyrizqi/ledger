@@ -14,8 +14,14 @@ function parseJagoAmount(raw: string): number {
   return parseFloat(clean) || 0;
 }
 
+const INVESTMENT_PLATFORM_RE = /\bbibit\b|\bstockbit\b|pencairan\s*reksa|reksa\s*dana/i;
+const EWALLET_RE = /\bovo\b|\bshopeepay\b|\bshopee\s*pay\b|\bdana\b|\bgopay\b/i;
+
 function isOwnAccount(text: string, ownAccounts: string[]): boolean {
-  return ownAccounts.some(acc => text.includes(acc));
+  const lower = text.toLowerCase();
+  return INVESTMENT_PLATFORM_RE.test(text)
+    || EWALLET_RE.test(text)
+    || ownAccounts.some(acc => lower.includes(acc.toLowerCase()));
 }
 
 function extractSource(line: string): string {
@@ -29,9 +35,18 @@ function extractSource(line: string): string {
   return withoutAmounts.trim().replace(/\s{2,}/g, ' ').slice(0, 80);
 }
 
-export function extractJagoMeta(filePath: string): { closingBalance?: number } {
+export interface JagoMeta {
+  openingBalance?: number;
+  totalInflow?: number;
+  totalOutflow?: number;
+  closingBalance?: number;
+}
+
+export function extractJagoMeta(filePath: string): JagoMeta {
   const raw = execSync(`pdftotext -layout "${filePath}" -`, { encoding: 'utf8' });
   const lines = raw.split('\n');
+
+  // Format A: in-app history export — "Saldo terbaru ... IDR 456.898"
   for (let i = 0; i < lines.length; i++) {
     if (/Saldo terbaru/i.test(lines[i])) {
       for (let j = i; j <= Math.min(i + 3, lines.length - 1); j++) {
@@ -40,6 +55,48 @@ export function extractJagoMeta(filePath: string): { closingBalance?: number } {
       }
     }
   }
+
+  // Format B: "mutasi rekening" — comma-as-thousands integers, e.g. "349,324"
+  function parseIntAmt(s: string): number {
+    return parseFloat(s.replace(/[+\-,]/g, '')) || 0;
+  }
+
+  let openingBalance: number | undefined;
+  let totalInflow: number | undefined;
+  let totalOutflow: number | undefined;
+  let closingBalance: number | undefined;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Summary header row → values on the very next line
+    if (/Saldo Awal\s+Total Pemasukan\s+Total Pengeluaran\s+Saldo Akhir/i.test(line)) {
+      const vals = lines[i + 1] ?? '';
+      const nums = [...vals.matchAll(/[+-]?[\d,]+/g)].map(m => parseIntAmt(m[0]));
+      if (nums.length >= 4) {
+        if (openingBalance === undefined) openingBalance = nums[0];
+        if (totalInflow === undefined)    totalInflow    = nums[1];
+        if (totalOutflow === undefined)   totalOutflow   = nums[2];
+        closingBalance = nums[3]; // keep overwriting → last month wins
+      }
+      continue;
+    }
+
+    // Inline "Saldo Akhir   159,713" — appears at end of each month section
+    const akhirM = line.match(/^\s+Saldo Akhir\s+([\d,]+)\s*$/i);
+    if (akhirM) { closingBalance = parseIntAmt(akhirM[1]); continue; }
+
+    // Inline "Saldo Awal   349,324" — appears at start; take the first occurrence only
+    if (openingBalance === undefined) {
+      const awalM = line.match(/^\s+Saldo Awal\s+([\d,]+)\s*$/i);
+      if (awalM) openingBalance = parseIntAmt(awalM[1]);
+    }
+  }
+
+  if (closingBalance !== undefined) {
+    return { openingBalance, totalInflow, totalOutflow, closingBalance };
+  }
+
   return {};
 }
 
@@ -49,37 +106,74 @@ export function parseJago(filePath: string, ownAccounts: string[]): ParsedTx[] {
   const txs: ParsedTx[] = [];
   const lines = raw.split('\n');
 
+  // Group lines into blocks: each block starts with a date line plus any continuation lines.
+  // This handles cases where the amount is on a continuation line (long Catatan overflows).
+  interface Block { dateLine: string; date: string; allLines: string[] }
+  const blocks: Block[] = [];
+  let cur: Block | null = null;
+  const DATE_RE = /^(\d{2})\s+(Jan|Feb|Mar|Apr|Mei|Jun|Jul|Agu|Sep|Okt|Nov|Des)\s+(\d{4})\s/;
+
   for (const line of lines) {
-    // Transaction line starts with DD Mon YYYY and contains an amount with +/- sign
-    const dateMatch = line.match(/^(\d{2})\s+(Jan|Feb|Mar|Apr|Mei|Jun|Jul|Agu|Sep|Okt|Nov|Des)\s+(\d{4})\s/);
-    if (!dateMatch) continue;
+    const dm = line.match(DATE_RE);
+    if (dm) {
+      if (cur) blocks.push(cur);
+      const day = dm[1].padStart(2, '0');
+      const month = JAGO_MONTHS[dm[2]];
+      const year = parseInt(dm[3]);
+      const date = `${year}-${String(month).padStart(2, '0')}-${day}`;
+      cur = { dateLine: line, date, allLines: [line] };
+    } else if (cur) {
+      cur.allLines.push(line);
+    }
+  }
+  if (cur) blocks.push(cur);
 
-    // Extract signed amount
-    const amountMatch = line.match(/([+-][\d.]+(?:,\d{2})?)\s+[\d.]+(?:,\d{2})?\s*$/);
+  for (const block of blocks) {
+    const { dateLine, date, allLines } = block;
+
+    // Find signed amount+balance in the date line first; if not found, scan continuation lines
+    const AMOUNT_RE = /([+-][\d.]+(?:,\d{2})?)\s+[\d.]+(?:,\d{2})?\s*$/;
+    let amountMatch = dateLine.match(AMOUNT_RE);
+    let amountLine = dateLine;
+    if (!amountMatch) {
+      for (const cl of allLines.slice(1)) {
+        const m = cl.match(AMOUNT_RE);
+        if (m) { amountMatch = m; amountLine = cl; break; }
+      }
+    }
     if (!amountMatch) continue;
-
-    const day = dateMatch[1].padStart(2, '0');
-    const month = JAGO_MONTHS[dateMatch[2]];
-    const year = parseInt(dateMatch[3]);
-    const date = `${year}-${String(month).padStart(2, '0')}-${day}`;
 
     const rawAmount = amountMatch[1];
     const amount = parseJagoAmount(rawAmount);
     const type: 'income' | 'expense' = rawAmount.startsWith('+') ? 'income' : 'expense';
 
-    const source = extractSource(line);
-    const isTransfer = isOwnAccount(line, ownAccounts);
+    const source = extractSource(dateLine);
+    const fullText = allLines.join(' ');
+    const isTransfer = isOwnAccount(fullText, ownAccounts);
 
-    // Description: prefer the Rincian Transaksi portion (Transfer Masuk/Keluar, Pembayaran QRIS, etc.)
-    const descMatch = line.match(/(?:Transfer\s+(?:Masuk|Keluar)|Pembayaran\s+(?:QRIS|dengan\s+Jago\s+Pay)|Isi\s+Saldo|Transaksi\s+POS)/i);
+    // Description: prefer the Rincian Transaksi portion
+    const descMatch = dateLine.match(/(?:Transfer\s+(?:Masuk|Keluar)|Pembayaran\s+(?:QRIS|dengan\s+Jago\s+Pay)|Isi\s+Saldo|Transaksi\s+POS|Biaya\s+(?:Transfer|dari\s+Kekurangan))/i);
     const description = descMatch
       ? `${descMatch[0]}${source ? ` — ${source}` : ''}`.slice(0, 100)
       : source || 'Jago Transaction';
 
     if (amount > 0) {
-      txs.push({ date, type, amount, description, isTransfer, raw: line.trim() });
+      txs.push({ date, type, amount, description, isTransfer, raw: dateLine.trim() });
     }
   }
 
-  return txs;
+  // Append counter suffix to identical (date, description, amount) groups so the
+  // preview deduplication key treats them as distinct transactions.
+  const groupCount: Record<string, number> = {};
+  const groupIndex: Record<string, number> = {};
+  for (const tx of txs) {
+    const k = `${tx.date}|${tx.description}|${tx.amount}`;
+    groupCount[k] = (groupCount[k] ?? 0) + 1;
+  }
+  return txs.map(tx => {
+    const k = `${tx.date}|${tx.description}|${tx.amount}`;
+    if (groupCount[k] <= 1) return tx;
+    groupIndex[k] = (groupIndex[k] ?? 0) + 1;
+    return { ...tx, description: `${tx.description} (${groupIndex[k]})` };
+  });
 }

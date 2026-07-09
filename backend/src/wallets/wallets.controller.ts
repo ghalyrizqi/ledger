@@ -37,8 +37,8 @@ export class WalletsController {
     }
 
     @Delete(':id')
-    deleteWallet(@Param('id') id: string) {
-        this.walletsService.deleteWallet(parseInt(id));
+    async deleteWallet(@Param('id') id: string) {
+        await this.walletsService.deleteWallet(parseInt(id));
         return { message: 'Wallet deleted successfully' };
     }
 }

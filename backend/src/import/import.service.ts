@@ -1,15 +1,20 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { writeFileSync, unlinkSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { execSync } from 'child_process';
 import { DatabaseService } from '../database/database.service';
-import { parseBCA } from './parsers/bca.parser';
+import { parseBCA, extractBCAMeta } from './parsers/bca.parser';
 import { parsePermata } from './parsers/permata.parser';
 import { parseJago, extractJagoMeta } from './parsers/jago.parser';
-import { parseStockbit, extractStockbitMeta } from './parsers/stockbit.parser';
+import { parseStockbit, extractStockbitMeta, parseStockbitRDN } from './parsers/stockbit.parser';
 import { parseStockbitTC, isStockbitTC } from './parsers/stockbit-tc.parser';
 import { parseVision } from './parsers/vision.parser';
 import { parseShopee } from './parsers/shopee.parser';
+import { parseOVO } from './parsers/ovo.parser';
+import { parseBibit } from './parsers/bibit.parser';
+import { parseGoPay, extractGopayMeta } from './parsers/gopay.parser';
+import { autoCategory } from './category.util';
 
 export interface ParsedTx {
   date: string;
@@ -26,33 +31,116 @@ export interface PreviewRow extends ParsedTx {
 }
 
 export interface PreviewMeta {
+  openingBalance?: number;
+  totalInflow?: number;   // total credits / pemasukan
+  totalOutflow?: number;  // total debits  / pengeluaran
   closingBalance?: number;
   gainAmt?: number;
   gainPct?: number;
 }
 
-export type BankType = 'bca' | 'permata' | 'jago' | 'stockbit' | 'dana' | 'shopee';
+export type BankType = 'bca' | 'permata' | 'jago' | 'stockbit' | 'dana' | 'shopee' | 'ovo' | 'bibit' | 'gopay';
 
 
 @Injectable()
 export class ImportService {
   constructor(private readonly db: DatabaseService) {}
 
+  private detectBankTypeFromText(text: string): BankType | null {
+    // BCA: match logo text OR statement-specific keywords (TAHAPAN is BCA-exclusive)
+    if (/bank central asia|bca e-statement|pt\.?\s*bank central asia|tahapan\s*xpresi|rekening\s*tahapan/i.test(text)) return 'bca';
+    if (/bank permata|permatabank|pt\.?\s*bank permata/i.test(text)) return 'permata';
+    if (/bank jago|pt\.?\s*jago/i.test(text)) return 'jago';
+    if (/stockbit/i.test(text)) return 'stockbit';
+    if (/shopee/i.test(text)) return 'shopee';
+    if (/\bdana\b/i.test(text)) return 'dana';
+    if (/gopay|gojek.*dompet|laporan\s+transaksi\s+gopay/i.test(text)) return 'gopay';
+    // OVO is screenshot-only — never detected from PDF text to avoid false matches
+    // (BCA statements contain "OVO" in transaction descriptions)
+    return null;
+  }
+
+  private detectBankTypeFromFilename(filename: string): BankType | null {
+    const name = filename.toLowerCase();
+    if (name.includes('bca')) return 'bca';
+    if (name.includes('permata')) return 'permata';
+    if (name.includes('jago')) return 'jago';
+    if (name.includes('stockbit')) return 'stockbit';
+    if (name.includes('shopee')) return 'shopee';
+    if (name.includes('dana')) return 'dana';
+    if (name.includes('ovo')) return 'ovo';
+    if (name.includes('bibit')) return 'bibit';
+    if (name.includes('gopay')) return 'gopay';
+    return null;
+  }
+
+  async autoPreview(
+    userId: number,
+    files: { buffer: Buffer; mimeType: string; filename: string }[],
+  ): Promise<{ rows: PreviewRow[]; meta: PreviewMeta; detectedBank: BankType; walletId: number; walletName: string; walletIcon?: string }> {
+    let detectedBank: BankType | null = null;
+
+    for (const file of files) {
+      if (file.mimeType.startsWith('image/')) {
+        detectedBank = this.detectBankTypeFromFilename(file.filename);
+      } else {
+        const tmpPath = join(tmpdir(), `ledger-detect-${Date.now()}.pdf`);
+        writeFileSync(tmpPath, file.buffer);
+        try {
+          const text = execSync(`pdftotext "${tmpPath}" -`, { encoding: 'utf8' });
+          detectedBank = this.detectBankTypeFromText(text) ?? this.detectBankTypeFromFilename(file.filename);
+        } catch {
+          detectedBank = this.detectBankTypeFromFilename(file.filename);
+        } finally {
+          if (existsSync(tmpPath)) unlinkSync(tmpPath);
+        }
+      }
+      if (detectedBank) break;
+    }
+
+    if (!detectedBank) {
+      throw new BadRequestException('Could not detect bank type from filename. Please select your wallet manually below.');
+    }
+
+    const wallet = await this.db.get(
+      'SELECT * FROM wallets WHERE user_id = ? AND bank_type = ?',
+      [userId, detectedBank],
+    );
+
+    if (!wallet) {
+      throw new BadRequestException(`Detected ${detectedBank.toUpperCase()} statement but no matching wallet found. Please select your wallet manually below.`);
+    }
+
+    const result = await this.preview(
+      wallet.id,
+      detectedBank,
+      files.map(f => ({ buffer: f.buffer, mimeType: f.mimeType })),
+    );
+
+    return {
+      ...result,
+      detectedBank,
+      walletId: wallet.id,
+      walletName: wallet.name,
+      walletIcon: wallet.icon ?? undefined,
+    };
+  }
+
   async preview(
     walletId: number,
     bankType: BankType,
     files: { buffer: Buffer; mimeType: string }[],
   ): Promise<{ rows: PreviewRow[]; meta: PreviewMeta }> {
-    const wallet = this.db.get('SELECT * FROM wallets WHERE id = ?', [walletId]);
+    const wallet = await this.db.get('SELECT * FROM wallets WHERE id = ?', [walletId]);
     if (!wallet) throw new Error('Wallet not found');
 
     const userId: number = wallet.user_id;
 
-    const ownWallets: { account_number: string }[] = this.db.all(
+    const ownWallets: { account_number: string }[] = await this.db.all(
       'SELECT account_number FROM wallets WHERE user_id = ? AND account_number IS NOT NULL',
       [userId],
     );
-    const allUsers: { name: string }[] = this.db.all('SELECT name FROM users');
+    const allUsers: { name: string }[] = await this.db.all('SELECT name FROM users');
     const ownAccounts = [
       ...ownWallets.map(w => w.account_number).filter(Boolean),
       ...allUsers.map(u => u.name).filter(Boolean),
@@ -69,6 +157,12 @@ export class ImportService {
       if (mimeType.startsWith('image/')) {
         if (bankType === 'shopee') {
           parsed = await parseShopee(buffer, ownAccounts);
+        } else if (bankType === 'ovo') {
+          parsed = await parseOVO(buffer, ownAccounts);
+        } else if (bankType === 'stockbit') {
+          parsed = await parseStockbitRDN(buffer, ownAccounts);
+        } else if (bankType === 'bibit') {
+          parsed = await parseBibit(buffer, ownAccounts);
         } else {
           parsed = await parseVision(buffer, mimeType, bankLabel, ownAccounts);
         }
@@ -78,6 +172,11 @@ export class ImportService {
         try {
           if (bankType === 'bca') {
             parsed = parseBCA(tmpPath, ownAccounts);
+            const bcaMeta = extractBCAMeta(tmpPath);
+            if (bcaMeta.closingBalance !== undefined) meta = { ...meta, closingBalance: bcaMeta.closingBalance };
+            if (bcaMeta.openingBalance !== undefined) meta = { ...meta, openingBalance: bcaMeta.openingBalance };
+            if (bcaMeta.mutasiCr !== undefined) meta = { ...meta, totalInflow: bcaMeta.mutasiCr };
+            if (bcaMeta.mutasiDb !== undefined) meta = { ...meta, totalOutflow: bcaMeta.mutasiDb };
           } else if (bankType === 'permata') {
             parsed = parsePermata(tmpPath, ownAccounts);
           } else if (bankType === 'jago') {
@@ -94,6 +193,10 @@ export class ImportService {
             }
           } else if (bankType === 'dana') {
             parsed = parseBCA(tmpPath, ownAccounts); // fallback
+          } else if (bankType === 'gopay') {
+            parsed = parseGoPay(tmpPath, ownAccounts);
+            const gopayMeta = extractGopayMeta(tmpPath);
+            if (gopayMeta.totalInflow !== undefined) meta = { ...meta, ...gopayMeta };
           }
         } finally {
           if (existsSync(tmpPath)) unlinkSync(tmpPath);
@@ -109,19 +212,11 @@ export class ImportService {
     const seen = new Set<string>();
     const rows: PreviewRow[] = [];
     for (const tx of allParsed) {
-      const key = `${tx.date}|${tx.amount}|${tx.type}|${tx.description}`;
+      const key = `${tx.date}|${tx.amount}|${tx.type}|${tx.description.toLowerCase()}`;
       if (seen.has(key)) continue;
       seen.add(key);
 
-      let category = tx.isTransfer ? 'Internal Transfer'
-        : tx.type === 'income' ? 'Other Income'
-        : 'Other Expense';
-      if (!tx.isTransfer && bankType === 'stockbit' && (
-        /dividend/i.test(tx.description) ||
-        /^(Buy|Sell)/i.test(tx.description)
-      )) {
-        category = 'Investment';
-      }
+      const category = autoCategory(tx.description, tx.type, tx.isTransfer);
       rows.push({ ...tx, category, walletId });
     }
     return { rows, meta };
@@ -139,14 +234,14 @@ export class ImportService {
       const delta = row.type === 'income' ? row.amount : -row.amount;
       walletDeltas.set(row.walletId, (walletDeltas.get(row.walletId) ?? 0) + delta);
 
-      // Deduplicate: skip if same date+amount+type+description already exists
-      const existing = this.db.get(
-        `SELECT id FROM transactions WHERE user_id = ? AND date = ? AND amount = ? AND type = ? AND description = ?`,
-        [userId, row.date, row.amount, row.type, row.description],
+      // Deduplicate: skip if same wallet+date+amount+type+description already exists (case-insensitive)
+      const existing = await this.db.get(
+        `SELECT id FROM transactions WHERE user_id = ? AND wallet_id = ? AND date = ? AND amount = ? AND type = ? AND LOWER(description) = LOWER(?)`,
+        [userId, row.walletId, row.date, row.amount, row.type, row.description],
       );
       if (existing) continue;
 
-      this.db.run(
+      await this.db.run(
         `INSERT INTO transactions (user_id, wallet_id, type, amount, category, description, date, is_transfer)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [userId, row.walletId, row.type, row.amount, row.category, row.description, row.date, row.isTransfer ? 1 : 0],
@@ -156,14 +251,13 @@ export class ImportService {
 
     for (const [walletId, delta] of walletDeltas) {
       if (meta?.closingBalance !== undefined) {
-        // Statement provides authoritative current balance — set it directly
-        this.db.run('UPDATE wallets SET balance = ? WHERE id = ?', [meta.closingBalance, walletId]);
+        await this.db.run('UPDATE wallets SET balance = ? WHERE id = ?', [meta.closingBalance, walletId]);
       } else if (delta !== 0) {
-        this.db.run('UPDATE wallets SET balance = balance + ? WHERE id = ?', [delta, walletId]);
+        await this.db.run('UPDATE wallets SET balance = balance + ? WHERE id = ?', [delta, walletId]);
       }
 
       if (meta?.gainAmt !== undefined && meta?.gainPct !== undefined) {
-        this.db.run(
+        await this.db.run(
           'UPDATE wallets SET gain_amt = ?, gain_pct = ? WHERE id = ?',
           [meta.gainAmt, meta.gainPct, walletId],
         );

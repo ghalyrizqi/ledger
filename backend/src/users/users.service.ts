@@ -15,17 +15,18 @@ export class UsersService {
     }
 
     async create(name: string): Promise<User> {
-        this.databaseService.run('INSERT INTO users (name) VALUES (?)', [name]);
-        const lastId = this.databaseService.get('SELECT last_insert_rowid() as id');
-        return this.findOne(lastId.id);
+        return this.databaseService.get(
+            'INSERT INTO users (name) VALUES (?) RETURNING *',
+            [name]
+        );
     }
 
     async update(id: number, name: string): Promise<User> {
-        this.databaseService.run('UPDATE users SET name = ? WHERE id = ?', [name, id]);
+        await this.databaseService.run('UPDATE users SET name = ? WHERE id = ?', [name, id]);
         return this.findOne(id);
     }
 
     async delete(id: number): Promise<void> {
-        this.databaseService.run('DELETE FROM users WHERE id = ?', [id]);
+        await this.databaseService.run('DELETE FROM users WHERE id = ?', [id]);
     }
 }

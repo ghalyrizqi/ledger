@@ -1,216 +1,134 @@
 import { Injectable } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { InitialBalance, MonthlyBalance, BalanceCrosscheck } from './entities/initial-balance.entity';
-import { CreateInitialBalanceDto, UpdateInitialBalanceDto } from './dto/initial-balance.dto';
+import { CreateInitialBalanceDto } from './dto/initial-balance.dto';
 
 @Injectable()
 export class InitialBalancesService {
     constructor(private readonly db: DatabaseService) { }
 
-    getInitialBalance(userId: number, year: number, month: number): InitialBalance | null {
-        const sql = `
-            SELECT * FROM initial_balances
-            WHERE user_id = ? AND year = ? AND month = ?
-        `;
-        const result = this.db.get(sql, [userId, year, month]);
-
-        if (result) {
-            return {
-                ...result,
-                is_manual: Boolean(result.is_manual),
-            };
-        }
-
-        return null;
+    async getInitialBalance(userId: number, year: number, month: number): Promise<InitialBalance | null> {
+        const result = await this.db.get(
+            'SELECT * FROM initial_balances WHERE user_id = ? AND year = ? AND month = ?',
+            [userId, year, month]
+        );
+        if (!result) return null;
+        return { ...result, balance: Number(result.balance), is_manual: Boolean(result.is_manual) };
     }
 
-    setInitialBalance(dto: CreateInitialBalanceDto): InitialBalance {
-        // Check if already exists
-        const existing = this.getInitialBalance(dto.user_id, dto.year, dto.month);
+    async setInitialBalance(dto: CreateInitialBalanceDto): Promise<InitialBalance> {
+        const existing = await this.getInitialBalance(dto.user_id, dto.year, dto.month);
+        const isManual = dto.is_manual !== undefined ? (dto.is_manual ? 1 : 0) : 1;
 
         if (existing) {
-            // Update existing
-            const sql = `
-                UPDATE initial_balances
-                SET balance = ?, is_manual = ?, updated_at = datetime('now')
-                WHERE user_id = ? AND year = ? AND month = ?
-            `;
-            this.db.run(sql, [
-                dto.balance,
-                dto.is_manual !== undefined ? (dto.is_manual ? 1 : 0) : 1,
-                dto.user_id,
-                dto.year,
-                dto.month,
-            ]);
+            await this.db.run(
+                `UPDATE initial_balances SET balance = ?, is_manual = ?, updated_at = NOW()
+                 WHERE user_id = ? AND year = ? AND month = ?`,
+                [dto.balance, isManual, dto.user_id, dto.year, dto.month]
+            );
         } else {
-            // Insert new
-            const sql = `
-                INSERT INTO initial_balances (user_id, year, month, balance, is_manual, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-            `;
-            this.db.run(sql, [
-                dto.user_id,
-                dto.year,
-                dto.month,
-                dto.balance,
-                dto.is_manual !== undefined ? (dto.is_manual ? 1 : 0) : 1,
-            ]);
+            await this.db.run(
+                `INSERT INTO initial_balances (user_id, year, month, balance, is_manual)
+                 VALUES (?, ?, ?, ?, ?)`,
+                [dto.user_id, dto.year, dto.month, dto.balance, isManual]
+            );
         }
 
-        const result = this.getInitialBalance(dto.user_id, dto.year, dto.month)!;
-
-        // Recalculate future balances
-        this.recalculateFutureBalances(dto.user_id, dto.year, dto.month - 1);
-
-        return result;
+        await this.recalculateFutureBalances(dto.user_id, dto.year, dto.month - 1);
+        return (await this.getInitialBalance(dto.user_id, dto.year, dto.month))!;
     }
 
-    deleteInitialBalance(userId: number, year: number, month: number): void {
-        const sql = `
-            DELETE FROM initial_balances
-            WHERE user_id = ? AND year = ? AND month = ?
-        `;
-        this.db.run(sql, [userId, year, month]);
-
-        // Recalculate future balances starting from the previous month
-        let prevYear = year;
-        let prevMonth = month - 1;
-        if (prevMonth === 0) {
-            prevMonth = 12;
-            prevYear = year - 1;
-        }
-
-        this.recalculateFutureBalances(userId, prevYear, prevMonth);
+    async deleteInitialBalance(userId: number, year: number, month: number): Promise<void> {
+        await this.db.run(
+            'DELETE FROM initial_balances WHERE user_id = ? AND year = ? AND month = ?',
+            [userId, year, month]
+        );
+        let prevYear = year, prevMonth = month - 1;
+        if (prevMonth === 0) { prevMonth = 12; prevYear = year - 1; }
+        await this.recalculateFutureBalances(userId, prevYear, prevMonth);
     }
 
-    private recalculateFutureBalances(userId: number, year: number, startMonth: number): void {
-        let currentYear = year;
-
-        // Loop through subsequent months
+    private async recalculateFutureBalances(userId: number, year: number, startMonth: number): Promise<void> {
         for (let month = startMonth + 1; month <= 12; month++) {
-            const initial = this.getInitialBalance(userId, currentYear, month);
+            const initial = await this.getInitialBalance(userId, year, month);
+            if (initial && initial.is_manual) break;
 
-            // If explicit manual override exists, stop propagation
-            if (initial && initial.is_manual) {
-                break;
-            }
-
-            // If record doesn't exist or is auto-calculated, recalculate it
-            const newBalance = this.calculateInitialBalance(userId, currentYear, month);
-
+            const newBalance = await this.calculateInitialBalance(userId, year, month);
             if (initial) {
-                // Update existing auto record
-                const sql = `
-                    UPDATE initial_balances
-                    SET balance = ?, updated_at = datetime('now')
-                    WHERE user_id = ? AND year = ? AND month = ?
-                `;
-                this.db.run(sql, [newBalance, userId, currentYear, month]);
-            } else {
-                // If it doesn't exist, we skip creating it to allow lazy loading elsewhere,
-                // or you could choose to create it if your business logic prefers eagerly filling gaps.
+                await this.db.run(
+                    `UPDATE initial_balances SET balance = ?, updated_at = NOW()
+                     WHERE user_id = ? AND year = ? AND month = ?`,
+                    [newBalance, userId, year, month]
+                );
             }
         }
     }
 
-    calculateInitialBalance(userId: number, year: number, month: number): number {
-        // Get previous month
-        let prevYear = year;
-        let prevMonth = month - 1;
-        if (prevMonth === 0) {
-            prevMonth = 12;
-            prevYear = year - 1;
-        }
+    async calculateInitialBalance(userId: number, year: number, month: number): Promise<number> {
+        let prevYear = year, prevMonth = month - 1;
+        if (prevMonth === 0) { prevMonth = 12; prevYear = year - 1; }
 
-        // Get previous month's initial balance
-        const prevInitial = this.getInitialBalance(userId, prevYear, prevMonth);
+        const prevInitial = await this.getInitialBalance(userId, prevYear, prevMonth);
         const prevInitialBalance = prevInitial ? prevInitial.balance : 0;
 
-        // Get previous month's transactions
         const startDate = `${prevYear}-${prevMonth.toString().padStart(2, '0')}-01`;
-        const endDate = `${prevYear}-${prevMonth.toString().padStart(2, '0')}-31`;
+        const endDate   = `${prevYear}-${prevMonth.toString().padStart(2, '0')}-31`;
 
-        const transactions = this.db.all(`
-            SELECT type, amount FROM transactions
-            WHERE user_id = ? AND date >= ? AND date <= ?
-        `, [userId, startDate, endDate]);
+        const transactions = await this.db.all(
+            `SELECT type, amount FROM transactions
+             WHERE user_id = ? AND date >= ? AND date <= ?
+               AND (is_transfer = 0 OR is_transfer IS NULL)`,
+            [userId, startDate, endDate]
+        );
 
-        let prevIncome = 0;
-        let prevExpense = 0;
-
+        let income = 0, expense = 0;
         transactions.forEach((t: any) => {
-            if (t.type === 'income') {
-                prevIncome += t.amount;
-            } else {
-                prevExpense += t.amount;
-            }
+            if (t.type === 'income') income += Number(t.amount);
+            else expense += Number(t.amount);
         });
 
-        // Current month initial = Previous initial + Previous savings
-        return prevInitialBalance + (prevIncome - prevExpense);
+        return prevInitialBalance + (income - expense);
     }
 
-    getOrCreateInitialBalance(userId: number, year: number, month: number): InitialBalance {
-        let initial = this.getInitialBalance(userId, year, month);
-
+    async getOrCreateInitialBalance(userId: number, year: number, month: number): Promise<InitialBalance> {
+        let initial = await this.getInitialBalance(userId, year, month);
         if (!initial) {
-            // Auto-calculate from previous month
-            const calculatedBalance = this.calculateInitialBalance(userId, year, month);
-            initial = this.setInitialBalance({
-                user_id: userId,
-                year,
-                month,
-                balance: calculatedBalance,
-                is_manual: false,
-            });
+            const balance = await this.calculateInitialBalance(userId, year, month);
+            initial = await this.setInitialBalance({ user_id: userId, year, month, balance, is_manual: false });
         }
-
         return initial;
     }
 
-    getMonthlyBalances(userId: number, year: number): MonthlyBalance[] {
-        const monthNames = [
-            'January', 'February', 'March', 'April', 'May', 'June',
-            'July', 'August', 'September', 'October', 'November', 'December'
-        ];
-
+    async getMonthlyBalances(userId: number, year: number): Promise<MonthlyBalance[]> {
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+            'July', 'August', 'September', 'October', 'November', 'December'];
         const balances: MonthlyBalance[] = [];
 
         for (let month = 1; month <= 12; month++) {
-            const initial = this.getOrCreateInitialBalance(userId, year, month);
-
-            // Get month's transactions
+            const initial = await this.getOrCreateInitialBalance(userId, year, month);
             const startDate = `${year}-${month.toString().padStart(2, '0')}-01`;
-            const endDate = `${year}-${month.toString().padStart(2, '0')}-31`;
+            const endDate   = `${year}-${month.toString().padStart(2, '0')}-31`;
 
-            const transactions = this.db.all(`
-                SELECT type, amount FROM transactions
-                WHERE user_id = ? AND date >= ? AND date <= ?
-            `, [userId, startDate, endDate]);
+            const txs = await this.db.all(
+                `SELECT type, amount FROM transactions
+                 WHERE user_id = ? AND date >= ? AND date <= ?
+                   AND (is_transfer = 0 OR is_transfer IS NULL)`,
+                [userId, startDate, endDate]
+            );
 
-            let income = 0;
-            let expense = 0;
-
-            transactions.forEach((t: any) => {
-                if (t.type === 'income') {
-                    income += t.amount;
-                } else {
-                    expense += t.amount;
-                }
+            let income = 0, expense = 0;
+            txs.forEach((t: any) => {
+                if (t.type === 'income') income += Number(t.amount);
+                else expense += Number(t.amount);
             });
 
             const savings = income - expense;
-            const currentBalance = initial.balance + savings;
-
             balances.push({
-                year,
-                month,
+                year, month,
                 monthName: monthNames[month - 1],
                 initialBalance: initial.balance,
-                income,
-                expense,
-                savings,
-                currentBalance,
+                income, expense, savings,
+                currentBalance: initial.balance + savings,
                 isManual: initial.is_manual,
             });
         }
@@ -218,76 +136,63 @@ export class InitialBalancesService {
         return balances;
     }
 
-    getCrosscheck(userId: number, year?: number, month?: number): BalanceCrosscheck {
+    async getCrosscheck(userId: number, year?: number, month?: number): Promise<BalanceCrosscheck> {
         let currentBalance = 0;
 
         if (year && month) {
-            // Get specific month's current balance
-            const initial = this.getOrCreateInitialBalance(userId, year, month);
-
+            const initial = await this.getOrCreateInitialBalance(userId, year, month);
             const startDate = `${year}-${month.toString().padStart(2, '0')}-01`;
-            const endDate = `${year}-${month.toString().padStart(2, '0')}-31`;
+            const endDate   = `${year}-${month.toString().padStart(2, '0')}-31`;
 
-            const transactions = this.db.all(`
-                SELECT type, amount FROM transactions
-                WHERE user_id = ? AND date >= ? AND date <= ?
-            `, [userId, startDate, endDate]);
+            const txs = await this.db.all(
+                `SELECT type, amount FROM transactions
+                 WHERE user_id = ? AND date >= ? AND date <= ?`,
+                [userId, startDate, endDate]
+            );
 
-            let income = 0;
-            let expense = 0;
-
-            transactions.forEach((t: any) => {
-                if (t.type === 'income') {
-                    income += t.amount;
-                } else {
-                    expense += t.amount;
-                }
+            let income = 0, expense = 0;
+            txs.forEach((t: any) => {
+                if (t.type === 'income') income += Number(t.amount);
+                else expense += Number(t.amount);
             });
-
             currentBalance = initial.balance + (income - expense);
         } else {
-            // Get overall current balance (all time)
             const now = new Date();
-            const currentYear = now.getFullYear();
+            const initial = await this.getOrCreateInitialBalance(userId, now.getFullYear(), 1);
 
-            // Use January's initial balance as the starting point for the year
-            const initial = this.getOrCreateInitialBalance(userId, currentYear, 1);
+            const txs = await this.db.all(
+                `SELECT type, amount FROM transactions WHERE user_id = ?`,
+                [userId]
+            );
 
-            const transactions = this.db.all(`
-                SELECT type, amount FROM transactions
-                WHERE user_id = ?
-            `, [userId]);
-
-            let totalIncome = 0;
-            let totalExpense = 0;
-
-            transactions.forEach((t: any) => {
-                if (t.type === 'income') {
-                    totalIncome += t.amount;
-                } else {
-                    totalExpense += t.amount;
-                }
+            let totalIncome = 0, totalExpense = 0;
+            txs.forEach((t: any) => {
+                if (t.type === 'income') totalIncome += Number(t.amount);
+                else totalExpense += Number(t.amount);
             });
-
             currentBalance = initial.balance + (totalIncome - totalExpense);
         }
 
-        // Get total wallet balance
-        const wallets = this.db.all(`
-            SELECT balance FROM wallets
-            WHERE user_id = ?
+        // Use the same computed balance as getWallets (initial offset + net transactions)
+        const wallets = await this.db.all(`
+            SELECT w.balance + COALESCE(SUM(CASE
+                WHEN t.type = 'income'  THEN  t.amount
+                WHEN t.type = 'expense' THEN -t.amount
+                ELSE 0
+            END), 0) AS computed_balance
+            FROM wallets w
+            LEFT JOIN transactions t ON t.wallet_id = w.id
+            WHERE w.user_id = ?
+            GROUP BY w.id
         `, [userId]);
-
-        const totalWalletBalance = wallets.reduce((sum: number, w: any) => sum + w.balance, 0);
+        const totalWalletBalance = wallets.reduce((s: number, w: any) => s + Number(w.computed_balance), 0);
 
         const difference = currentBalance - totalWalletBalance;
-        const isMatch = Math.abs(difference) < 0.01; // Allow for floating point errors
-
         return {
             currentBalance,
             totalWalletBalance,
             difference,
-            isMatch,
+            isMatch: Math.abs(difference) < 0.01,
         };
     }
 }

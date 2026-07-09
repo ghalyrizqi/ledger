@@ -154,7 +154,7 @@ export class ImportService {
             const rows = this.parseCSV(csvContent);
 
             // Get user's categories
-            const categories = this.categoriesService.findAll(userId);
+            const categories = await this.categoriesService.findAll(userId);
 
             // Validate and import each row
             for (let i = 0; i < rows.length; i++) {
@@ -176,7 +176,7 @@ export class ImportService {
                     );
                     const date = this.parseDate(row.date);
 
-                    this.transactionsService.create({
+                    await this.transactionsService.create({
                         user_id: userId,
                         type: row.type.toLowerCase() as 'income' | 'expense',
                         amount: parseFloat(row.amount),

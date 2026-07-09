@@ -18,7 +18,7 @@ const EXPENSE_KEYWORDS = [
 ];
 const INCOME_KEYWORDS = [
   'PB DARI KREDITUR', 'PB Bagi Hasil', 'Bagi Hasil', 'KREDITUR',
-  'Transfer Masuk', 'KREDIT', 'PAYROLL', 'Gaji',
+  'Transfer Masuk', 'TRF INCOMING', 'KREDIT', 'PAYROLL', 'Gaji',
 ];
 
 function parsePermataAmount(raw: string): number {
@@ -50,7 +50,9 @@ export function parsePermata(filePath: string, ownAccounts: string[]): ParsedTx[
     if (!currentDate || amount <= 0) return;
     const fullText = [...descBuffer, rawLine].join(' ');
     const type = inferType(fullText);
-    const isTransfer = ownAccounts.some(acc => fullText.toLowerCase().includes(acc.toLowerCase()));
+    const lowerText = fullText.toLowerCase();
+    const isTransfer = ownAccounts.some(acc => lowerText.includes(acc.toLowerCase()))
+      || /pencairan\s+reksa\s+dana|\bbibit\b|\bstockbit\b|\bovo\b|gopay[a-z]*|\bshopeepay\b/i.test(fullText);
     const description = descBuffer.join(' ').replace(/\s{2,}/g, ' ').trim().slice(0, 100)
       || 'Permata Transaction';
     txs.push({ date: currentDate, type, amount, description, isTransfer, raw: fullText.slice(0, 120) });

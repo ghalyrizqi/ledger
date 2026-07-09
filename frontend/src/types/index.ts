@@ -46,6 +46,8 @@ export interface MonthData {
     expense: CategoryAmount[];
     totalIncome: number;
     totalExpense: number;
+    totalRealIncome?: number;
+    totalRealExpense?: number;
 }
 
 export interface CategoryAmount {
@@ -63,7 +65,7 @@ export interface Wallet {
     balance: number;
     icon?: string;
     color?: string;
-    bank_type?: 'bca' | 'permata' | 'jago' | 'stockbit' | 'dana' | 'shopee' | null;
+    bank_type?: 'bca' | 'permata' | 'jago' | 'stockbit' | 'dana' | 'shopee' | 'ovo' | 'bibit' | 'gopay' | null;
     account_number?: string | null;
     gain_amt?: number | null;
     gain_pct?: number | null;

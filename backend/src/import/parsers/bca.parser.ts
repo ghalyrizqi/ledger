@@ -10,76 +10,181 @@ function parseAmount(raw: string): number {
   return parseFloat(raw.replace(/,/g, ''));
 }
 
-function isOwnAccount(line: string, ownAccounts: string[]): boolean {
-  return ownAccounts.some(acc => line.includes(acc));
-}
+// Patterns in description that mean money is going to/from own wallets/investment accounts → transfer
+const EWALLET_TOPUP_RE = /\bOVO\b|GOPAY[\s_]*TOPUP|FLAZZ[\s_]*BCA[\s_]*TOPUP|SHOPEEPAY|DANA\b|\bBIBIT\b|\bSTOCKBIT\b/i;
+
+// Lines to skip (balance markers, column headers)
+const SKIP_RE = /SALDO\s*AWAL|SALDO\s*AKHIR|MUTASI\s*CR|MUTASI\s*DB|TANG\s*GA\s*L|KET\s*ER\s*AN|BERSAMBUNG|HALAMAN/i;
 
 export function parseBCA(filePath: string, ownAccounts: string[]): ParsedTx[] {
   const raw = execSync(`pdftotext -layout "${filePath}" -`, { encoding: 'utf8' });
 
-  // BCA headers have spaced characters (e.g. "P E R I O D E  :  M A R E T  2 0 2 6").
-  // Extract month/year by removing all spaces from the PERIODE context line first.
-  let month = new Date().getMonth() + 1;
+  // Extract statement period from header
   let year = new Date().getFullYear();
   for (const line of raw.split('\n')) {
-    if (/PE\s*RIO\s*D\s*E|MARE T|JANUARI|FEBRUARI|MARET|APRIL|JUNI|JULI|AGUS|SEPTEM|OKTO|NOVEM|DESEM/i.test(line)) {
-      const compact = line.replace(/\s/g, '');
-      const m = compact.match(/(JANUARI|FEBRUARI|MARET|APRIL|MEI|JUNI|JULI|AGUSTUS|SEPTEMBER|OKTOBER|NOVEMBER|DESEMBER)(\d{4})/i);
-      if (m) {
-        month = MONTH_MAP[m[1].toUpperCase()];
-        year = parseInt(m[2]);
-        break;
-      }
+    const compact = line.replace(/\s/g, '');
+    const m = compact.match(/(JANUARI|FEBRUARI|MARET|APRIL|MEI|JUNI|JULI|AGUSTUS|SEPTEMBER|OKTOBER|NOVEMBER|DESEMBER)(\d{4})/i);
+    if (m) {
+      year = parseInt(m[2]);
+      break;
     }
   }
 
+  // ── Group lines into transaction blocks ──────────────────────────────────
+  // Each block starts with a line containing DD/MM at the left margin.
+  // Continuation lines (no date, indented) belong to the same block.
+
+  interface Block { date: string; lines: string[] }
+  const blocks: Block[] = [];
+  let cur: Block | null = null;
+
+  for (const line of raw.split('\n')) {
+    const dateMatch = line.match(/^\s{0,14}(\d{2})\/(\d{2})\s/);
+    if (dateMatch) {
+      if (cur) blocks.push(cur);
+      const [, dd, mm] = dateMatch;
+      cur = { date: `${year}-${mm}-${dd}`, lines: [line] };
+    } else if (cur && line.trim()) {
+      cur.lines.push(line);
+    }
+  }
+  if (cur) blocks.push(cur);
+
   const txs: ParsedTx[] = [];
-  const lines = raw.split('\n');
 
-  for (const line of lines) {
-    // Transaction lines start with DD/MM (with up to 12 leading spaces)
-    const dateMatch = line.match(/^\s{0,12}(\d{2})\/(\d{2})\s/);
-    if (!dateMatch) continue;
+  for (const { date, lines } of blocks) {
+    const first = lines[0];
+    if (SKIP_RE.test(first)) continue;
 
-    const day = dateMatch[1].padStart(2, '0');
-    // Use MM from the date line itself; year from statement header
-    const txMonth = dateMatch[2].padStart(2, '0');
-    const date = `${year}-${txMonth}-${day}`;
+    const allText = lines.join(' ');
 
-    // Skip opening balance marker and repeated column headers
-    if (/SALDO\s*AWAL|TANG\s*GA\s*L|KET\s*ER\s*AN/i.test(line)) continue;
+    // ── Amount detection ─────────────────────────────────────────────────
+    // Debit: "23,000.00 DB" anywhere in the block
+    const debitMatch = allText.match(/([\d,]+\.\d{2})\s+DB/);
+    let amount: number;
+    let type: 'income' | 'expense';
 
-    // --- Debit: amount followed by "DB" ---
-    const debitMatch = line.match(/([\d,]+\.\d{2})\s+DB/);
     if (debitMatch) {
-      const amount = parseAmount(debitMatch[1]);
-      const isTransfer = isOwnAccount(line, ownAccounts);
-      const description = extractBCADescription(line);
-      txs.push({ date, type: 'expense', amount, description, isTransfer, raw: line.trim() });
+      amount = parseAmount(debitMatch[1]);
+      type = 'expense';
+    } else {
+      // Credit: find first numeric amount that looks like a transaction amount
+      // Exclude reference codes (short numbers, "00000.00" prefixes)
+      const creditMatch = allText.match(/\b([\d]{1,3}(?:,\d{3})+\.\d{2})\b(?!\s*DB)/);
+      if (!creditMatch) continue;
+      amount = parseAmount(creditMatch[1]);
+      type = 'income';
+    }
+
+    if (!amount || amount <= 0) continue;
+
+    // ── Description extraction ───────────────────────────────────────────
+    const description = buildDescription(lines);
+
+    // ── Transfer detection ───────────────────────────────────────────────
+    const isTransfer = detectTransfer(allText, lines, ownAccounts);
+
+    txs.push({ date, type, amount, description, isTransfer, raw: first.trim() });
+  }
+
+  // When the same (date, description, amount) appears multiple times in one statement
+  // (e.g. 4× ATM withdrawals of the same amount on the same day), append a counter so
+  // the deduplication logic in preview/confirm treats them as distinct transactions.
+  const groupCount: Record<string, number> = {};
+  const groupIndex: Record<string, number> = {};
+  for (const tx of txs) {
+    const k = `${tx.date}|${tx.description}|${tx.amount}`;
+    groupCount[k] = (groupCount[k] ?? 0) + 1;
+  }
+  return txs.map(tx => {
+    const k = `${tx.date}|${tx.description}|${tx.amount}`;
+    if (groupCount[k] <= 1) return tx;
+    groupIndex[k] = (groupIndex[k] ?? 0) + 1;
+    return { ...tx, description: `${tx.description} (${groupIndex[k]})` };
+  });
+}
+
+function buildDescription(lines: string[]): string {
+  const first = lines[0];
+
+  // Strip leading date token from first line
+  const withoutDate = first.replace(/^\s*\d{2}\/\d{2}\s+/, '').trim();
+
+  // Extract the transaction type keyword (before reference codes / amounts)
+  const txType = withoutDate
+    .replace(/\s+\d{4}\/[A-Z]+\/[A-Z0-9]+.*/, '')   // ref codes like "0104/FTSCY/WS95271"
+    .replace(/\s+TGL:\s*\d{2}\/\d{2}.*/, '')         // "TGL: 02/04 ..."
+    .replace(/\s+TANGGAL\s*:\s*\d{2}\/\d{2}.*/, '')  // "TANGGAL :07/04"
+    .replace(/([\d,]+\.\d{2})(\s+DB)?.*/, '')         // trailing amounts
+    .replace(/\s+/g, ' ').trim();
+
+  // Look through continuation lines for a useful name/merchant
+  let detail = '';
+  for (const cl of lines.slice(1)) {
+    const t = cl.trim();
+    if (!t) continue;
+
+    // QR merchant: "00000.00ALFAMART R" or "0145201705176386" (reference — skip)
+    const merchantMatch = t.match(/^0+\.?0*\s*([A-Z].+)/i);
+    if (merchantMatch) {
+      const name = merchantMatch[1].trim();
+      if (name.length >= 3 && !/^\d+$/.test(name)) {
+        detail = name;
+        break;
+      }
       continue;
     }
 
-    // --- Credit: no DB, first amount is MUTASI ---
-    // Matches: amount optionally followed by second amount (saldo)
-    const creditAmounts = [...line.matchAll(/([\d,]+\.\d{2})/g)];
-    if (creditAmounts.length >= 1) {
-      const amount = parseAmount(creditAmounts[0][1]);
-      if (amount <= 0) continue;
-      const isTransfer = isOwnAccount(line, ownAccounts);
-      const description = extractBCADescription(line);
-      txs.push({ date, type: 'income', amount, description, isTransfer, raw: line.trim() });
+    // Skip pure reference lines (only digits, slashes, dashes)
+    if (/^[\d\s\/\-]+$/.test(t)) continue;
+
+    // Skip BIF/amount-only lines
+    if (/^BIF\s+TRANSFER|^\d{4}\/[A-Z]/.test(t)) continue;
+
+    // A line with real text (recipient/sender name)
+    if (/[A-Za-z]/.test(t) && t.length >= 3) {
+      detail = t;
+      // Don't break — keep looking for merchant names further down
     }
   }
 
-  return txs;
+  const combined = detail ? `${txType} — ${detail}` : txType;
+  return combined.slice(0, 120) || 'BCA Transaction';
 }
 
-function extractBCADescription(line: string): string {
-  // Strip leading date token, strip trailing numbers, return key phrase
-  const withoutDate = line.replace(/^\s*\d{2}\/\d{2}\s+/, '');
-  // Remove amounts and DB suffix
-  const withoutAmounts = withoutDate.replace(/([\d,]+\.\d{2})(\s+DB)?/g, '').trim();
-  // Collapse whitespace, take first 80 chars
-  const cleaned = withoutAmounts.replace(/\s{2,}/g, ' ').trim();
-  return cleaned.slice(0, 80) || 'BCA Transaction';
+function detectTransfer(allText: string, lines: string[], ownAccounts: string[]): boolean {
+  // E-wallet / prepaid top-ups from BCA → always transfers
+  if (EWALLET_TOPUP_RE.test(allText)) return true;
+
+  // Investment account redemptions are internal transfers, not income
+  if (/pencairan\s*reksa|reksa\s*dana/i.test(allText)) return true;
+
+  // Check if any own account name / account number appears anywhere in the block
+  const lower = allText.toLowerCase();
+  if (ownAccounts.some(acc => acc && lower.includes(acc.toLowerCase()))) return true;
+
+  return false;
+}
+
+export interface BCAMeta {
+  openingBalance?: number;
+  mutasiCr?: number;
+  mutasiDb?: number;
+  closingBalance?: number;
+}
+
+export function extractBCAMeta(filePath: string): BCAMeta {
+  const raw = execSync(`pdftotext -layout "${filePath}" -`, { encoding: 'utf8' });
+
+  function extract(pattern: RegExp): number | undefined {
+    const m = raw.match(pattern);
+    return m ? parseFloat(m[1].replace(/,/g, '')) : undefined;
+  }
+
+  return {
+    openingBalance: extract(/SALDO\s*AWAL\s*[:\s]+([\d,]+\.\d{2})/i),
+    mutasiCr:       extract(/MUTASI\s*CR\s*[:\s]+([\d,]+\.\d{2})/i),
+    mutasiDb:       extract(/MUTASI\s*DB\s*[:\s]+([\d,]+\.\d{2})/i),
+    closingBalance: extract(/SALDO\s*AKHIR\s*[:\s]+([\d,]+\.\d{2})/i),
+  };
 }

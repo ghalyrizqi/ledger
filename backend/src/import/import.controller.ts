@@ -10,7 +10,7 @@ export class ImportController {
   constructor(private readonly importService: ImportService) {}
 
   @Post('preview')
-  @UseInterceptors(FilesInterceptor('files', 20, { storage: memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } }))
+  @UseInterceptors(FilesInterceptor('files', 100, { storage: memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } }))
   async preview(
     @UploadedFiles() files: Express.Multer.File[],
     @Body('walletId') walletId: string,
@@ -20,7 +20,7 @@ export class ImportController {
     if (!walletId) throw new BadRequestException('walletId is required');
     if (!bankType) throw new BadRequestException('bankType is required');
 
-    const allowed: BankType[] = ['bca', 'permata', 'jago', 'stockbit', 'dana', 'shopee'];
+    const allowed: BankType[] = ['bca', 'permata', 'jago', 'stockbit', 'dana', 'shopee', 'ovo', 'bibit', 'gopay'];
     if (!allowed.includes(bankType as BankType)) {
       throw new BadRequestException(`bankType must be one of: ${allowed.join(', ')}`);
     }
@@ -29,6 +29,21 @@ export class ImportController {
       parseInt(walletId),
       bankType as BankType,
       files.map(f => ({ buffer: f.buffer, mimeType: f.mimetype })),
+    );
+  }
+
+  @Post('auto-preview')
+  @UseInterceptors(FilesInterceptor('files', 100, { storage: memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } }))
+  async autoPreview(
+    @UploadedFiles() files: Express.Multer.File[],
+    @Body('userId') userId: string,
+  ) {
+    if (!files?.length) throw new BadRequestException('No files uploaded');
+    if (!userId) throw new BadRequestException('userId is required');
+
+    return this.importService.autoPreview(
+      parseInt(userId),
+      files.map(f => ({ buffer: f.buffer, mimeType: f.mimetype, filename: f.originalname })),
     );
   }
 

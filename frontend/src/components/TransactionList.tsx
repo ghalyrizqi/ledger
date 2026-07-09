@@ -7,12 +7,11 @@ interface TransactionListProps {
   transactions: Transaction[];
   onEdit: (transaction: Transaction) => void;
   onDelete: (id: number) => void;
-  userId?: number;
 }
 
-type SortField = 'date' | 'amount' | 'category' | 'type';
+type SortField = 'date' | 'amount' | 'category';
 type SortOrder = 'asc' | 'desc';
-type FilterType = 'all' | 'income' | 'expense' | 'transfer';
+type FilterType = 'all' | 'income' | 'expense' | 'transfer' | 'investment';
 
 function IconSearch() {
   return (
@@ -54,7 +53,7 @@ function SortArrow({ field, sortField, sortOrder }: { field: SortField; sortFiel
   return <span style={{ color: 'var(--laccent)' }}>{sortOrder === 'desc' ? '↓' : '↑'}</span>;
 }
 
-export default function TransactionList({ transactions, onEdit, onDelete, userId }: TransactionListProps) {
+export default function TransactionList({ transactions, onEdit, onDelete }: TransactionListProps) {
   const [sortField, setSortField] = useState<SortField>('date');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [filterType, setFilterType] = useState<FilterType>('all');
@@ -63,6 +62,8 @@ export default function TransactionList({ transactions, onEdit, onDelete, userId
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
+  const [filterWallet, setFilterWallet] = useState('');
+  const [filterMonth, setFilterMonth] = useState('');
   const filterRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -81,22 +82,41 @@ export default function TransactionList({ transactions, onEdit, onDelete, userId
   const fmtDate = (s: string) =>
     new Date(s).toLocaleDateString('id-ID', { year: 'numeric', month: 'short', day: 'numeric' });
 
+  const fmtMonth = (ym: string) => {
+    const d = new Date(ym + '-01');
+    return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  };
+
   const categories = useMemo(() =>
     [...new Set(transactions.filter(t => !t.is_transfer).map(t => t.category))].sort(),
     [transactions],
   );
 
-  const hasActiveFilter = !!(dateFrom || dateTo || filterCategory);
+  const availableWallets = useMemo(() =>
+    [...new Set(transactions.map(t => t.wallet_name).filter((n): n is string => !!n))].sort(),
+    [transactions],
+  );
+
+  const availableMonths = useMemo(() =>
+    [...new Set(transactions.map(t => t.date.slice(0, 7)))].sort().reverse(),
+    [transactions],
+  );
+
+  const hasActiveFilter = !!(dateFrom || dateTo || filterCategory || filterWallet || filterMonth);
 
   const sorted = useMemo(() => {
     let rows = [...transactions];
-    if (filterType === 'transfer') rows = rows.filter(t => t.is_transfer === 1);
-    else if (filterType !== 'all') rows = rows.filter(t => t.type === filterType && !t.is_transfer);
+    if (filterType === 'transfer')    rows = rows.filter(t => t.is_transfer === 1 && t.category !== 'Investment');
+    else if (filterType === 'investment') rows = rows.filter(t => t.is_transfer === 1 && t.category === 'Investment');
+    else if (filterType !== 'all')    rows = rows.filter(t => t.type === filterType && !t.is_transfer);
+    if (filterMonth) rows = rows.filter(t => t.date.startsWith(filterMonth));
+    if (filterWallet) rows = rows.filter(t => t.wallet_name === filterWallet);
     if (searchTerm) {
       const q = searchTerm.toLowerCase();
       rows = rows.filter(t =>
         t.category.toLowerCase().includes(q) ||
-        (t.description && t.description.toLowerCase().includes(q))
+        (t.description && t.description.toLowerCase().includes(q)) ||
+        (t.wallet_name && t.wallet_name.toLowerCase().includes(q))
       );
     }
     if (dateFrom) rows = rows.filter(t => t.date >= dateFrom);
@@ -106,16 +126,20 @@ export default function TransactionList({ transactions, onEdit, onDelete, userId
       const v =
         sortField === 'amount' ? a.amount - b.amount
         : sortField === 'category' ? a.category.localeCompare(b.category)
-        : sortField === 'type' ? a.type.localeCompare(b.type)
         : new Date(a.date).getTime() - new Date(b.date).getTime();
       return sortOrder === 'asc' ? v : -v;
     });
     return rows;
-  }, [transactions, filterType, searchTerm, dateFrom, dateTo, filterCategory, sortField, sortOrder]);
+  }, [transactions, filterType, filterMonth, filterWallet, searchTerm, dateFrom, dateTo, filterCategory, sortField, sortOrder]);
 
   const toggleSort = (f: SortField) => {
     if (sortField === f) setSortOrder(o => o === 'asc' ? 'desc' : 'asc');
     else { setSortField(f); setSortOrder('desc'); }
+  };
+
+  const clearFilters = () => {
+    setDateFrom(''); setDateTo('');
+    setFilterCategory(''); setFilterWallet(''); setFilterMonth('');
   };
 
   const exportToExcel = () => {
@@ -125,6 +149,7 @@ export default function TransactionList({ transactions, onEdit, onDelete, userId
       Type: t.type === 'income' ? 'Income' : 'Expense',
       Category: t.category,
       Description: t.description || '',
+      Source: t.wallet_name || '',
       Amount: t.amount,
     }));
     const ws = XLSX.utils.json_to_sheet(data);
@@ -158,9 +183,9 @@ export default function TransactionList({ transactions, onEdit, onDelete, userId
       }}>
         {/* Type segmented */}
         <div className="seg">
-          {(['all', 'income', 'expense', 'transfer'] as const).map(k => (
+          {(['all', 'income', 'expense', 'transfer', 'investment'] as const).map(k => (
             <button key={k} className={filterType === k ? 'on' : ''} onClick={() => setFilterType(k)}>
-              {k === 'all' ? 'All' : k === 'income' ? 'Income' : k === 'expense' ? 'Expense' : '↔ Transfer'}
+              {k === 'all' ? 'All' : k === 'income' ? 'Income' : k === 'expense' ? 'Expense' : k === 'transfer' ? '↔ Transfer' : '📈 Investment'}
             </button>
           ))}
         </div>
@@ -181,6 +206,44 @@ export default function TransactionList({ transactions, onEdit, onDelete, userId
 
         <div style={{ flex: 1 }} />
 
+        {/* Active filter chips */}
+        {filterMonth && (
+          <button
+            onClick={() => setFilterMonth('')}
+            style={{
+              height: 28, padding: '0 10px', borderRadius: 999, display: 'flex', alignItems: 'center', gap: 5,
+              background: 'var(--accent-soft)', border: '1px solid var(--card-border)',
+              color: 'var(--laccent)', fontSize: 11, fontWeight: 500, cursor: 'pointer',
+            }}
+          >
+            {fmtMonth(filterMonth)} ×
+          </button>
+        )}
+        {filterWallet && (
+          <button
+            onClick={() => setFilterWallet('')}
+            style={{
+              height: 28, padding: '0 10px', borderRadius: 999, display: 'flex', alignItems: 'center', gap: 5,
+              background: 'var(--accent-soft)', border: '1px solid var(--card-border)',
+              color: 'var(--laccent)', fontSize: 11, fontWeight: 500, cursor: 'pointer',
+            }}
+          >
+            {filterWallet} ×
+          </button>
+        )}
+        {filterCategory && (
+          <button
+            onClick={() => setFilterCategory('')}
+            style={{
+              height: 28, padding: '0 10px', borderRadius: 999, display: 'flex', alignItems: 'center', gap: 5,
+              background: 'var(--accent-soft)', border: '1px solid var(--card-border)',
+              color: 'var(--laccent)', fontSize: 11, fontWeight: 500, cursor: 'pointer',
+            }}
+          >
+            {filterCategory} ×
+          </button>
+        )}
+
         {/* Filter */}
         <div ref={filterRef} style={{ position: 'relative' }}>
           <button
@@ -192,45 +255,57 @@ export default function TransactionList({ transactions, onEdit, onDelete, userId
             }}
             onClick={() => setShowFilter(v => !v)}
           >
-            <IconFilter /> Filter{hasActiveFilter && ' ·'}
+            <IconFilter /> Filter{hasActiveFilter ? ' ·' : ''}
           </button>
 
           {showFilter && (
             <div style={{
               position: 'absolute', top: 38, right: 0, zIndex: 100,
-              width: 260, padding: 16, borderRadius: 14,
-              background: 'rgba(255,255,255,0.92)', backdropFilter: 'blur(12px)',
-              border: '1px solid var(--glass-border)',
-              boxShadow: '0 8px 32px rgba(3,29,68,0.12)',
-              display: 'flex', flexDirection: 'column', gap: 12,
+              width: 280, padding: 16, borderRadius: 14,
+              background: 'var(--card-bg)',
+              border: '1px solid var(--card-border)',
+              boxShadow: 'var(--card-shadow)',
+              display: 'flex', flexDirection: 'column', gap: 14,
             }}>
               <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--fg-faint)' }}>
                 Filter
               </div>
 
-              {/* Date range */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <div style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500 }}>Date range</div>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <input
-                    type="date"
+              {/* Month */}
+              {availableMonths.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500 }}>Month</div>
+                  <select
                     className="glass-input"
-                    style={{ flex: 1, fontSize: 11, height: 30, padding: '0 8px' }}
-                    value={dateFrom}
-                    onChange={e => setDateFrom(e.target.value)}
-                    placeholder="From"
-                  />
-                  <span style={{ color: 'var(--fg-faint)', fontSize: 11 }}>–</span>
-                  <input
-                    type="date"
-                    className="glass-input"
-                    style={{ flex: 1, fontSize: 11, height: 30, padding: '0 8px' }}
-                    value={dateTo}
-                    onChange={e => setDateTo(e.target.value)}
-                    placeholder="To"
-                  />
+                    style={{ fontSize: 12, height: 30, padding: '0 8px' }}
+                    value={filterMonth}
+                    onChange={e => setFilterMonth(e.target.value)}
+                  >
+                    <option value="">All time</option>
+                    {availableMonths.map(m => (
+                      <option key={m} value={m}>{fmtMonth(m)}</option>
+                    ))}
+                  </select>
                 </div>
-              </div>
+              )}
+
+              {/* Source / Wallet */}
+              {availableWallets.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500 }}>Source</div>
+                  <select
+                    className="glass-input"
+                    style={{ fontSize: 12, height: 30, padding: '0 8px' }}
+                    value={filterWallet}
+                    onChange={e => setFilterWallet(e.target.value)}
+                  >
+                    <option value="">All accounts</option>
+                    {availableWallets.map(w => (
+                      <option key={w} value={w}>{w}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* Category */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -246,17 +321,39 @@ export default function TransactionList({ transactions, onEdit, onDelete, userId
                 </select>
               </div>
 
+              {/* Date range */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 500 }}>Date range</div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <input
+                    type="date"
+                    className="glass-input"
+                    style={{ flex: 1, fontSize: 11, height: 30, padding: '0 8px' }}
+                    value={dateFrom}
+                    onChange={e => setDateFrom(e.target.value)}
+                  />
+                  <span style={{ color: 'var(--fg-faint)', fontSize: 11 }}>–</span>
+                  <input
+                    type="date"
+                    className="glass-input"
+                    style={{ flex: 1, fontSize: 11, height: 30, padding: '0 8px' }}
+                    value={dateTo}
+                    onChange={e => setDateTo(e.target.value)}
+                  />
+                </div>
+              </div>
+
               {/* Clear */}
               {hasActiveFilter && (
                 <button
-                  onClick={() => { setDateFrom(''); setDateTo(''); setFilterCategory(''); }}
+                  onClick={clearFilters}
                   style={{
-                    height: 28, borderRadius: 999, border: '1px solid var(--glass-border)',
+                    height: 28, borderRadius: 999, border: '1px solid var(--card-border)',
                     background: 'transparent', fontSize: 11, color: 'var(--neg)',
                     cursor: 'pointer',
                   }}
                 >
-                  Clear filters
+                  Clear all filters
                 </button>
               )}
             </div>
@@ -279,7 +376,7 @@ export default function TransactionList({ transactions, onEdit, onDelete, userId
       <div style={{ padding: '0 8px' }}>
         <div style={{
           display: 'grid',
-          gridTemplateColumns: '110px 1fr 140px 160px 60px',
+          gridTemplateColumns: '100px 1fr minmax(0, 140px) 56px',
           gap: 0, padding: '8px 12px',
         }}>
           <button style={hcellStyle} onClick={() => toggleSort('date')}>
@@ -287,9 +384,6 @@ export default function TransactionList({ transactions, onEdit, onDelete, userId
           </button>
           <button style={hcellStyle} onClick={() => toggleSort('category')}>
             Category <SortArrow field="category" sortField={sortField} sortOrder={sortOrder} />
-          </button>
-          <button style={hcellStyle} onClick={() => toggleSort('type')}>
-            Type <SortArrow field="type" sortField={sortField} sortOrder={sortOrder} />
           </button>
           <button style={{ ...hcellStyle, justifyContent: 'flex-end' }} onClick={() => toggleSort('amount')}>
             Amount <SortArrow field="amount" sortField={sortField} sortOrder={sortOrder} />
@@ -309,7 +403,7 @@ export default function TransactionList({ transactions, onEdit, onDelete, userId
               className="tx-row"
               style={{
                 display: 'grid',
-                gridTemplateColumns: '110px 1fr 140px 160px 60px',
+                gridTemplateColumns: '100px 1fr minmax(0, 140px) 56px',
                 alignItems: 'center',
                 padding: '11px 12px',
                 borderRadius: 10,
@@ -320,12 +414,12 @@ export default function TransactionList({ transactions, onEdit, onDelete, userId
                 {fmtDate(t.date)}
               </span>
 
-              {/* Category + description */}
+              {/* Category + description + type chip */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                 <div style={{
                   width: 32, height: 32, borderRadius: 9, flexShrink: 0,
                   background: t.is_transfer ? 'rgba(4,57,94,0.07)' : t.type === 'income' ? 'var(--pos-soft)' : 'var(--neg-soft)',
-                  border: '1px solid var(--glass-border)',
+                  border: '1px solid var(--card-border)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   color: t.is_transfer ? 'var(--laccent)' : t.type === 'income' ? 'var(--pos)' : 'var(--neg)',
                   fontSize: t.is_transfer ? 14 : 13, fontWeight: 600,
@@ -347,37 +441,40 @@ export default function TransactionList({ transactions, onEdit, onDelete, userId
                       {t.description}
                     </div>
                   )}
-                  {t.wallet_name && (
-                    <div style={{ marginTop: 3 }}>
-                      <span style={{
-                        fontSize: 10, color: 'var(--fg-faint)',
-                        background: 'rgba(3,29,68,0.05)',
-                        border: '1px solid var(--glass-border)',
-                        borderRadius: 4, padding: '1px 5px',
-                        whiteSpace: 'nowrap',
-                      }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3, flexWrap: 'wrap' }}>
+                    {t.wallet_name && (
+                      <button
+                        onClick={() => setFilterWallet(t.wallet_name === filterWallet ? '' : t.wallet_name!)}
+                        style={{
+                          fontSize: 10,
+                          color: filterWallet === t.wallet_name ? 'var(--laccent)' : 'var(--fg-faint)',
+                          background: filterWallet === t.wallet_name ? 'var(--accent-soft)' : 'transparent',
+                          border: `1px solid ${filterWallet === t.wallet_name ? 'oklch(from var(--laccent) l c h / 0.30)' : 'var(--card-border)'}`,
+                          borderRadius: 4, padding: '1px 5px',
+                          whiteSpace: 'nowrap', cursor: 'pointer',
+                        }}
+                      >
                         {t.wallet_icon && <span style={{ marginRight: 3 }}>{t.wallet_icon}</span>}
                         {t.wallet_name}
-                      </span>
-                    </div>
-                  )}
+                      </button>
+                    )}
+                    {t.is_transfer
+                      ? t.category === 'Investment'
+                        ? <span className="chip" style={{ fontSize: 10, padding: '1px 5px', color: '#0ea5e9', borderColor: 'rgba(14,165,233,0.25)', background: 'rgba(14,165,233,0.08)' }}>📈 Investment</span>
+                        : <span className="chip" style={{ fontSize: 10, padding: '1px 5px', color: 'var(--laccent)', borderColor: 'rgba(4,57,94,0.2)', background: 'rgba(4,57,94,0.07)' }}>↔ Transfer</span>
+                      : <span className={t.type === 'income' ? 'chip chip-pos' : 'chip chip-neg'} style={{ fontSize: 10, padding: '1px 5px' }}>{t.type === 'income' ? '↑ Income' : '↓ Expense'}</span>
+                    }
+                  </div>
                 </div>
-              </div>
-
-              {/* Type chip */}
-              <div>
-                {t.is_transfer
-                  ? <span className="chip" style={{ color: 'var(--laccent)', borderColor: 'rgba(4,57,94,0.2)', background: 'rgba(4,57,94,0.07)' }}>↔ Transfer</span>
-                  : <span className={t.type === 'income' ? 'chip chip-pos' : 'chip chip-neg'}>{t.type === 'income' ? '↑ Income' : '↓ Expense'}</span>
-                }
               </div>
 
               {/* Amount */}
               <span
                 className="num"
                 style={{
-                  fontSize: 13.5, fontWeight: 600, textAlign: 'right',
+                  fontSize: 13, fontWeight: 600, textAlign: 'right',
                   color: t.is_transfer ? 'var(--fg-muted)' : t.type === 'income' ? 'var(--pos)' : 'var(--fg)',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 }}
               >
                 {t.is_transfer ? '↔' : t.type === 'income' ? '+' : '-'}{fmt(t.amount)}
@@ -394,7 +491,7 @@ export default function TransactionList({ transactions, onEdit, onDelete, userId
                     background: 'transparent', border: '1px solid transparent',
                     color: 'var(--fg-muted)', cursor: 'pointer', transition: 'all 0.12s',
                   }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(3,29,68,0.06)'; e.currentTarget.style.borderColor = 'var(--glass-border)'; }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(3,29,68,0.06)'; e.currentTarget.style.borderColor = 'var(--card-border)'; }}
                   onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
                 >
                   <IconEdit />
