@@ -427,6 +427,13 @@
     path-to-regexp "8.4.2"
     tslib "2.8.1"
 
+"@nestjs/serve-static@^5.0.5":
+  version "5.0.5"
+  resolved "http://mirrors.tencentyun.com/npm/@nestjs/serve-static/-/serve-static-5.0.5.tgz#4bef0d71ed320a9d408fe8ed044ce388f941d45d"
+  integrity sha512-AhYx3N9aMwR2cb0w5Nlb5nHNYiAcF74ea/D/xna+PxlXwjmwGN/PpC/5fuMtOwmPBMgOTxNPOnB8C9LDZBSgyw==
+  dependencies:
+    path-to-regexp "8.4.2"
+
 "@nodelib/fs.scandir@2.1.5":
   version "2.1.5"
   resolved "https://registry.yarnpkg.com/@nodelib/fs.scandir/-/fs.scandir-2.1.5.tgz#7619c2eb21b25483f6d167548b4cfd5a7488c3d5"
@@ -1010,6 +1017,11 @@ doctrine@^3.0.0:
   integrity sha512-yS+Q5i3hBf7GBkd4KG8a7eBNNWNGLTaEwwYWUijIYM7zrlYDM0BFXHjjPWlWZ1Rg7UaddZeIDmi9jF3HmqiQ2w==
   dependencies:
     esutils "^2.0.2"
+
+dotenv@^17.4.2:
+  version "17.4.2"
+  resolved "http://mirrors.tencentyun.com/npm/dotenv/-/dotenv-17.4.2.tgz#c07e54a746e11eba021dd9e1047ced5afdc1c034"
+  integrity sha512-nI4U3TottKAcAD9LLud4Cb7b2QztQMUEfHbvhTH09bqXTxnSie8WnjPALV/WMCrJZ6UV/qHJ6L03OqO3LcdYZw==
 
 dunder-proto@^1.0.1:
   version "1.0.1"
@@ -1701,6 +1713,11 @@ node-fetch@^2.6.1, node-fetch@^2.6.9:
   integrity sha512-c4FRfUm/dbcWZ7U+1Wq0AwCyFL+3nt2bEw05wfxSz+DWpWsitgmSgYmy2dQdWyKC1694ELPqMs/YzUSNozLt8A==
   dependencies:
     whatwg-url "^5.0.0"
+
+node-telegram-bot-api@^1.2.0:
+  version "1.2.0"
+  resolved "http://mirrors.tencentyun.com/npm/node-telegram-bot-api/-/node-telegram-bot-api-1.2.0.tgz#d17b11a1e8512976529af670f7f47d8e9788254b"
+  integrity sha512-M6S61LZn1FQMQnZSdFlc4oV+mwDGlPTbLzq/GUaSH4ew40wGTaKPtAaLp5oOhl/C3k0ylGqMIppJsVulwTCePg==
 
 normalize-path@^3.0.0, normalize-path@~3.0.0:
   version "3.0.0"

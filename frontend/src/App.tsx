@@ -12,7 +12,11 @@ import {
   updateCategory,
   deleteCategory,
   getWallets,
+  getMe,
+  logout,
 } from '@/lib/api';
+import Login from '@/components/Login';
+import Landing from '@/components/Landing';
 import FinancialSummaryComponent from '@/components/FinancialSummary';
 import TransactionList from '@/components/TransactionList';
 import SalaryCard from '@/components/SalaryCard';
@@ -33,11 +37,32 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { Calendar, ChevronDown } from 'lucide-react';
+import { Calendar, ChevronDown, LogOut, Menu } from 'lucide-react';
 
 type View = 'overview' | 'wallets' | 'transactions';
 
+// True on phone-sized viewports; drives the off-canvas sidebar + tighter layout.
+function useIsMobile() {
+  const [mobile, setMobile] = useState(
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const on = () => setMobile(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  return mobile;
+}
+
 export default function App() {
+  // null = still checking the session; false = show landing/login; true = app
+  const [authed, setAuthed] = useState<boolean | null>(null);
+  // landing → login; jump straight to login if returning from a Google callback
+  const [showLogin, setShowLogin] = useState(() =>
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('login'));
+  const [sidebarOpen, setSidebarOpen] = useState(false); // mobile drawer
+  const isMobile = useIsMobile();
   const [users, setUsers] = useState<User[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -66,10 +91,27 @@ export default function App() {
     return () => clearTimeout(t);
   }, [darkMode]);
 
-  useEffect(() => { loadUsers(); }, []);
+  // Check the session on load; flip to the login page on any later 401.
+  useEffect(() => {
+    getMe().then(() => setAuthed(true)).catch(() => setAuthed(false));
+    const onUnauth = () => setAuthed(false);
+    window.addEventListener('ledger:unauth', onUnauth);
+    return () => window.removeEventListener('ledger:unauth', onUnauth);
+  }, []);
+
+  useEffect(() => { if (authed) loadUsers(); }, [authed]);
   useEffect(() => {
     if (selectedUserId) { loadData(); loadCategories(); }
   }, [selectedUserId]);
+
+  const handleLogout = async () => {
+    try { await logout(); } catch { /* ignore */ }
+    setAuthed(false);
+    setShowLogin(false);
+    setSidebarOpen(false);
+    setSelectedUserId(null);
+    setUsers([]);
+  };
 
   const loadUsers = async () => {
     try {
@@ -136,7 +178,13 @@ export default function App() {
   const handleUpdateCategory = async (id: number, c: Partial<Category>) => { await updateCategory(id, c); };
   const handleDeleteCategory = async (id: number) => { await deleteCategory(id); };
 
-  if (isLoading) {
+  if (authed === false) {
+    return showLogin
+      ? <Login onSuccess={() => setAuthed(true)} onBack={() => setShowLogin(false)} />
+      : <Landing onStart={() => setShowLogin(true)} />;
+  }
+
+  if (authed === null || isLoading) {
     return (
       <div style={{
         minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -178,21 +226,37 @@ export default function App() {
         onOpenUsers={() => setIsUserManagerOpen(true)}
         onOpenImport={() => setIsImportOpen(true)}
         onRefresh={() => { loadData(); setWalletRefreshKey(k => k + 1); }}
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
+
+      {/* Mobile drawer backdrop */}
+      <div
+        className={cn('sidebar-backdrop', isMobile && sidebarOpen && 'show')}
+        onClick={() => setSidebarOpen(false)}
       />
 
       {/* Main area */}
-      <div style={{ marginLeft: 240, flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100vh', minWidth: 0 }}>
+      <div style={{ marginLeft: isMobile ? 0 : 240, flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100vh', minWidth: 0 }}>
         {/* Topbar */}
         <header style={{
           position: 'sticky', top: 0, zIndex: 15,
           height: 54,
           display: 'flex', alignItems: 'center', gap: 10,
-          padding: '0 28px',
+          padding: isMobile ? '0 14px' : '0 28px',
           background: 'var(--background)',
           borderBottom: '1px solid var(--card-border)',
         }}>
+          {/* Hamburger (mobile only) */}
+          {isMobile && (
+            <Button variant="ghost" size="icon" className="h-8 w-8 -ml-1"
+              onClick={() => setSidebarOpen(true)} title="Menu" aria-label="Open menu">
+              <Menu style={{ width: 18, height: 18 }} />
+            </Button>
+          )}
+
           {/* View title */}
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <span style={{
               fontFamily: 'var(--font-display)',
               fontSize: 16, fontWeight: 600,
@@ -237,10 +301,16 @@ export default function App() {
               </div>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* Logout */}
+          <Button variant="outline" size="sm" className="h-8 gap-2 text-xs" onClick={handleLogout} title="Keluar">
+            <LogOut className="w-3.5 h-3.5" />
+            Keluar
+          </Button>
         </header>
 
         {/* Page content */}
-        <main style={{ flex: 1, padding: '28px 28px 52px' }}>
+        <main style={{ flex: 1, padding: isMobile ? '16px 14px 40px' : '28px 28px 52px' }}>
           {!selectedUserId ? (
             <div style={{ textAlign: 'center', padding: '80px 24px', color: 'var(--fg-faint)', fontSize: 14 }}>
               No users found. Add a user to get started.

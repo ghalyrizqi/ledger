@@ -28,6 +28,8 @@ interface SidebarProps {
   onOpenUsers: () => void;
   onOpenImport: () => void;
   onRefresh: () => void;
+  open?: boolean;          // mobile drawer open state
+  onClose?: () => void;    // close the mobile drawer
 }
 
 function LogoMark() {
@@ -70,11 +72,13 @@ export default function Sidebar({
   activeView, onViewChange,
   darkMode, onToggleDark,
   onAdd, onOpenUpload, onOpenCategories, onOpenUsers, onOpenImport, onRefresh,
+  open, onClose,
 }: SidebarProps) {
   const selectedUser = users.find(u => u.id === selectedUserId);
+  const go = (v: View) => { onViewChange(v); onClose?.(); };
 
   return (
-    <aside className="sidebar-root">
+    <aside className={cn('sidebar-root', open && 'open')}>
       {/* Logo */}
       <div style={{
         padding: '18px 16px 14px',
@@ -152,7 +156,7 @@ export default function Sidebar({
           <button
             key={id}
             className={cn('sidebar-nav-item', activeView === id && 'active')}
-            onClick={() => onViewChange(id)}
+            onClick={() => go(id)}
           >
             <Icon className="w-4 h-4 shrink-0" />
             {label}

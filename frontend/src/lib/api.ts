@@ -1,14 +1,37 @@
 import axios from 'axios';
 import { User, Transaction, FinancialSummary, Category, MonthlyAnalytics, Wallet, WalletSummary, OverallBalance, InitialBalance, MonthlyBalance, BalanceCrosscheck, ParsedTx, PreviewMeta } from '@/types';
 
-const API_BASE_URL = 'http://localhost:3001';
+// Same-origin by default: the backend serves this built UI and mounts the API
+// under /api, so one address (SSH tunnel / Tailscale / etc.) serves everything.
+// Override with VITE_API_URL for split local dev (e.g. http://localhost:3001/api).
+const API_BASE_URL = (import.meta as any).env?.VITE_API_URL ?? '/api';
 
 const api = axios.create({
     baseURL: API_BASE_URL,
+    withCredentials: true,           // send the session cookie
     headers: {
         'Content-Type': 'application/json',
     },
 });
+
+// When any data call comes back 401 (session expired), tell the app to show the
+// login page again. Login/me calls are excluded so a bad password doesn't loop.
+api.interceptors.response.use(
+    r => r,
+    err => {
+        const url: string = err?.config?.url || '';
+        if (err?.response?.status === 401 && !url.includes('/auth/')) {
+            window.dispatchEvent(new Event('ledger:unauth'));
+        }
+        return Promise.reject(err);
+    },
+);
+
+// ---- Auth ----
+export const getMe = async (): Promise<{ email: string }> => (await api.get('/auth/me')).data;
+export const login = async (email: string, password: string): Promise<{ email: string }> =>
+    (await api.post('/auth/login', { email, password })).data;
+export const logout = async (): Promise<void> => { await api.post('/auth/logout'); };
 
 // Users API
 export const getUsers = async (): Promise<User[]> => {
