@@ -1,7 +1,17 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import TelegramBot from 'node-telegram-bot-api';
+import { writeFileSync, unlinkSync, existsSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { execSync } from 'child_process';
 import { DatabaseService } from '../database/database.service';
 import { parseVision } from '../import/parsers/vision.parser';
+import { parseBCA } from '../import/parsers/bca.parser';
+import { parsePermata } from '../import/parsers/permata.parser';
+import { parseJago } from '../import/parsers/jago.parser';
+import { parseGoPay } from '../import/parsers/gopay.parser';
+import { parseStockbitTC, isStockbitTC } from '../import/parsers/stockbit-tc.parser';
+import { ParsedTx } from '../import/import.service';
 import { looseParse } from './loose-parse';
 import { autoCategory } from '../import/category.util';
 import { parseRupiah, formatRupiah } from './amount.util';
@@ -18,6 +28,26 @@ async function pdfToText(buf: Buffer): Promise<string> {
   } finally {
     try { await parser.destroy?.(); } catch { /* ignore */ }
   }
+}
+
+// Route a PDF to the same tuned, layout-aware parser the web upload flow uses
+// (they need `pdftotext -layout`, now installed) instead of the bank-agnostic
+// looseParse fallback — sniff which bank it is from footer/header text.
+function parseWithBankParser(tmpPath: string, ownAccounts: string[]): ParsedTx[] | null {
+  if (isStockbitTC(tmpPath)) return parseStockbitTC(tmpPath);
+
+  let raw: string;
+  try {
+    raw = execSync(`pdftotext -layout "${tmpPath}" -`, { encoding: 'utf8' });
+  } catch {
+    return null; // poppler missing or unreadable PDF — fall back to looseParse
+  }
+
+  if (/PermataBank|PT Bank Permata/i.test(raw)) return parsePermata(tmpPath, ownAccounts);
+  if (/PT\s*Bank\s*Central\s*Asia|KlikBCA|BCA\s*Mobile/i.test(raw)) return parseBCA(tmpPath, ownAccounts);
+  if (/Bank\s*Jago/i.test(raw)) return parseJago(tmpPath, ownAccounts);
+  if (/GoPay/i.test(raw) && /Total pemasukan/i.test(raw)) return parseGoPay(tmpPath, ownAccounts);
+  return null; // unrecognized bank — caller falls back to looseParse
 }
 
 // One parsed-but-unsaved transaction awaiting the user's Save/Cancel tap.
@@ -154,8 +184,9 @@ export class TelegramService implements OnModuleInit {
       isPdf ? 'application/pdf' : (mime || 'image/jpeg'), isPdf ? 'PDF' : 'gambar');
   }
 
-  // Download a Telegram file, extract transactions (OCR for images, pdf-parse
-  // for PDFs — no external binaries needed), and present them to confirm.
+  // Download a Telegram file, extract transactions (OCR for images; PDFs try
+  // the tuned per-bank parsers first, falling back to the generic looseParse
+  // for statements from banks we don't recognize), and present them to confirm.
   private async ingestFile(chatId: number, userId: number, fileId: string, mime: string, label: string) {
     await this.bot!.sendChatAction(chatId, 'typing').catch(() => {});
     let buf: Buffer;
@@ -169,9 +200,18 @@ export class TelegramService implements OnModuleInit {
     let drafts: Draft[] = [];
     try {
       const ownAccounts = await this.ownAccounts(userId);
-      const parsed = mime === 'application/pdf'
-        ? looseParse(await pdfToText(buf))
-        : await parseVision(buf, mime, 'Telegram', ownAccounts);
+      let parsed: ParsedTx[];
+      if (mime === 'application/pdf') {
+        const tmpPath = join(tmpdir(), `ledger-tg-${Date.now()}.pdf`);
+        writeFileSync(tmpPath, buf);
+        try {
+          parsed = parseWithBankParser(tmpPath, ownAccounts) ?? looseParse(await pdfToText(buf));
+        } finally {
+          if (existsSync(tmpPath)) unlinkSync(tmpPath);
+        }
+      } else {
+        parsed = await parseVision(buf, mime, 'Telegram', ownAccounts);
+      }
       drafts = parsed.map(p => ({
         date: p.date, type: p.type, amount: p.amount,
         description: p.description, isTransfer: p.isTransfer,
