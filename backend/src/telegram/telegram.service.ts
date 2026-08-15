@@ -2,8 +2,23 @@ import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import TelegramBot from 'node-telegram-bot-api';
 import { DatabaseService } from '../database/database.service';
 import { parseVision } from '../import/parsers/vision.parser';
+import { looseParse } from './loose-parse';
 import { autoCategory } from '../import/category.util';
 import { parseRupiah, formatRupiah } from './amount.util';
+
+// Extract text from a PDF buffer using the bundled pdf-parse (pure JS — no
+// poppler/pdftotext needed, which this box doesn't have). Works for text-based
+// statements; scanned/image PDFs yield little text (user can send a photo).
+async function pdfToText(buf: Buffer): Promise<string> {
+  const mod: any = require('pdf-parse');
+  const parser = new mod.PDFParse({ data: buf });
+  try {
+    const r = await parser.getText();
+    return r?.text || '';
+  } finally {
+    try { await parser.destroy?.(); } catch { /* ignore */ }
+  }
+}
 
 // One parsed-but-unsaved transaction awaiting the user's Save/Cancel tap.
 interface Draft {
@@ -82,6 +97,7 @@ export class TelegramService implements OnModuleInit {
     }
 
     if (Array.isArray(msg.photo) && msg.photo.length) return this.onPhoto(msg, userId);
+    if (msg.document) return this.onDocument(msg, userId);
     const text: string = (msg.text || '').trim();
     if (text.startsWith('/')) return this.onCommand(text.split(/\s+/)[0].toLowerCase(), chatId, userId);
     if (text) return this.onText(text, chatId, userId);
@@ -93,7 +109,7 @@ export class TelegramService implements OnModuleInit {
     await this.send(chatId,
       `👋 <b>Ledger bot</b>\n\n` +
       `Catat transaksi gampang:\n` +
-      `• Kirim <b>screenshot</b> struk/mutasi → aku baca otomatis\n` +
+      `• Kirim <b>foto</b> atau <b>PDF</b> struk/mutasi → aku baca otomatis\n` +
       `• Atau <b>ketik</b>, contoh:\n` +
       `   <code>50000 kopi</code>\n` +
       `   <code>gaji 5jt</code>\n` +
@@ -118,41 +134,66 @@ export class TelegramService implements OnModuleInit {
     await this.presentConfirm(chatId, userId, [draft]);
   }
 
-  // ---- photo / OCR --------------------------------------------------------
+  // ---- photo / document (image or PDF) → OCR/parse -----------------------
   private async onPhoto(msg: any, userId: number) {
-    const chatId = msg.chat.id;
+    const photo = msg.photo[msg.photo.length - 1];        // largest size
+    await this.ingestFile(msg.chat.id, userId, photo.file_id, 'image/jpeg', 'foto');
+  }
+
+  private async onDocument(msg: any, userId: number) {
+    const doc = msg.document || {};
+    const mime: string = doc.mime_type || '';
+    const name: string = doc.file_name || '';
+    const isPdf = mime === 'application/pdf' || /\.pdf$/i.test(name);
+    const isImg = mime.startsWith('image/') || /\.(jpe?g|png|webp|heic)$/i.test(name);
+    if (!isPdf && !isImg) {
+      await this.send(msg.chat.id, 'Kirim <b>foto</b> atau <b>PDF</b> mutasi/struk ya 🙏');
+      return;
+    }
+    await this.ingestFile(msg.chat.id, userId, doc.file_id,
+      isPdf ? 'application/pdf' : (mime || 'image/jpeg'), isPdf ? 'PDF' : 'gambar');
+  }
+
+  // Download a Telegram file, extract transactions (OCR for images, pdf-parse
+  // for PDFs — no external binaries needed), and present them to confirm.
+  private async ingestFile(chatId: number, userId: number, fileId: string, mime: string, label: string) {
     await this.bot!.sendChatAction(chatId, 'typing').catch(() => {});
-    const photo = msg.photo[msg.photo.length - 1];         // largest size
     let buf: Buffer;
     try {
-      const link = await this.bot!.getFileLink(photo.file_id);
-      const res = await fetch(link);
-      buf = Buffer.from(await res.arrayBuffer());
-    } catch (e) {
-      await this.send(chatId, 'Gagal ngambil gambarnya 😔 coba kirim ulang.');
+      buf = await this.download(fileId);
+    } catch {
+      await this.send(chatId, `Gagal ngambil ${label}-nya 😔 coba kirim ulang.`);
       return;
     }
 
     let drafts: Draft[] = [];
     try {
       const ownAccounts = await this.ownAccounts(userId);
-      const parsed = await parseVision(buf, 'image/jpeg', 'Telegram', ownAccounts);
+      const parsed = mime === 'application/pdf'
+        ? looseParse(await pdfToText(buf))
+        : await parseVision(buf, mime, 'Telegram', ownAccounts);
       drafts = parsed.map(p => ({
         date: p.date, type: p.type, amount: p.amount,
         description: p.description, isTransfer: p.isTransfer,
         category: autoCategory(p.description, p.type, p.isTransfer),
       }));
     } catch (e) {
-      this.log.error(`OCR failed: ${e}`);
+      this.log.error(`parse failed (${mime}): ${e}`);
     }
 
     if (!drafts.length) {
       await this.send(chatId,
-        `Aku ga bisa baca angkanya dari gambar itu 😅\n` +
-        `Coba ketik manual, contoh: <code>50000 kopi</code>`);
+        `Aku ga bisa baca transaksinya dari ${label} itu 😅\n` +
+        `Kalau struk, foto yang lebih jelas. Atau ketik manual: <code>50000 kopi</code>`);
       return;
     }
     await this.presentConfirm(chatId, userId, drafts);
+  }
+
+  private async download(fileId: string): Promise<Buffer> {
+    const link = await this.bot!.getFileLink(fileId);
+    const res = await fetch(link);
+    return Buffer.from(await res.arrayBuffer());
   }
 
   // ---- confirm flow -------------------------------------------------------

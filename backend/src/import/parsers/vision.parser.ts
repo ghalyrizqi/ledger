@@ -47,7 +47,7 @@ async function ocrImage(buffer: Buffer): Promise<string> {
   }
 }
 
-function parseText(text: string, bankName: string, ownAccounts: string[]): ParsedTx[] {
+export function parseText(text: string, bankName: string, ownAccounts: string[]): ParsedTx[] {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   const txs: ParsedTx[] = [];
 
