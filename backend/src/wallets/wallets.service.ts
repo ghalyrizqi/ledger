@@ -11,13 +11,16 @@ export class WalletsService {
         const rows = await this.db.all(`
             SELECT w.*,
                 w.balance + COALESCE(tx.net, 0) AS balance,
+                tx.latest_transaction_date,
                 wi.uploaded_at AS latest_upload_at,
                 wi.covered_through AS latest_covered_through,
                 wi.source AS latest_source,
                 wi.status AS latest_import_status
             FROM wallets w
             LEFT JOIN (
-                SELECT wallet_id, SUM(CASE WHEN type = 'income' THEN amount ELSE -amount END) AS net
+                SELECT wallet_id,
+                    SUM(CASE WHEN type = 'income' THEN amount ELSE -amount END) AS net,
+                    MAX(date) AS latest_transaction_date
                 FROM transactions GROUP BY wallet_id
             ) tx ON tx.wallet_id = w.id
             LEFT JOIN LATERAL (
@@ -34,6 +37,7 @@ export class WalletsService {
     private calculateFreshness(wallet: any): WalletFreshness {
         const base = {
             coveredThrough: wallet.latest_covered_through ?? null,
+            latestTransactionDate: wallet.latest_transaction_date ?? null,
             lastUploadAt: wallet.latest_upload_at ?? wallet.last_confirmed_at ?? null,
             source: wallet.latest_source ?? (wallet.last_confirmed_at ? 'manual' : null),
             latestImportStatus: wallet.latest_import_status ?? null,

@@ -202,7 +202,7 @@ export default function WalletCard({ wallet, onEdit, onDelete, onConfirmFreshnes
               <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: FRESHNESS_COLORS[wallet.freshness.status] }} />
               <span>Last refreshed</span>
               <span className="num" style={{ color: 'var(--fg-muted)', fontWeight: 600 }}>
-                {wallet.freshness.lastUploadAt ? formatDate(wallet.freshness.lastUploadAt, true) : 'Never'}
+                {wallet.freshness.latestTransactionDate ? formatDate(wallet.freshness.latestTransactionDate) : 'Never'}
               </span>
             </div>
           )}
@@ -232,7 +232,7 @@ export default function WalletCard({ wallet, onEdit, onDelete, onConfirmFreshnes
               <span style={{ color: 'var(--fg-faint)' }}>Data through</span>
               <span className="num" style={{ textAlign: 'right' }}>{formatDate(wallet.freshness?.coveredThrough)}</span>
               <span style={{ color: 'var(--fg-faint)' }}>Last refreshed</span>
-              <span className="num" style={{ textAlign: 'right' }}>{wallet.freshness?.lastUploadAt ? formatDate(wallet.freshness.lastUploadAt, true) : 'Never'}</span>
+              <span className="num" style={{ textAlign: 'right' }}>{wallet.freshness?.latestTransactionDate ? formatDate(wallet.freshness.latestTransactionDate) : 'Never'}</span>
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
               {wallet.freshness?.status !== 'ignored' && (

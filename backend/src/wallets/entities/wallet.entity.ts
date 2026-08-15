@@ -26,6 +26,7 @@ export interface WalletFreshness {
     status: FreshnessStatus;
     label: string;
     coveredThrough?: string | null;
+    latestTransactionDate?: string | null;
     lastUploadAt?: string | null;
     nextDueAt?: string | null;
     daysUntilDue?: number | null;
