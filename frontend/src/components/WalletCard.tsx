@@ -1,11 +1,15 @@
 import { useState } from 'react';
 import { Wallet } from '@/types';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import { getWalletImportHistory } from '@/lib/api';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 interface WalletCardProps {
   wallet: Wallet;
   onEdit: (wallet: Wallet) => void;
   onDelete: (id: number) => void;
+  onConfirmFreshness: (id: number) => void;
+  onUpload: () => void;
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -57,8 +61,20 @@ function TrashIcon() {
   );
 }
 
-export default function WalletCard({ wallet, onEdit, onDelete }: WalletCardProps) {
+const FRESHNESS_COLORS: Record<string, string> = {
+  up_to_date: 'var(--pos)', due_soon: '#d99a36', needs_update: 'var(--neg)',
+  never_uploaded: 'var(--fg-muted)', review_needed: 'var(--neg)', manual: '#d99a36', ignored: 'var(--fg-faint)',
+};
+
+export default function WalletCard({ wallet, onEdit, onDelete, onConfirmFreshness, onUpload }: WalletCardProps) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState<any[]>([]);
+
+  const openHistory = async () => {
+    setShowHistory(true);
+    try { setHistory(await getWalletImportHistory(wallet.id)); } catch { setHistory([]); }
+  };
 
   const formatCurrency = (n: number) => {
     const sign = n < 0 ? '-' : '';
@@ -168,8 +184,38 @@ export default function WalletCard({ wallet, onEdit, onDelete }: WalletCardProps
             )}
           </div>
 
+          {wallet.freshness && (
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+              <div style={{ minWidth: 0 }}>
+                <button onClick={openHistory} style={{ padding: 0, border: 0, background: 'transparent', cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: FRESHNESS_COLORS[wallet.freshness.status] }}>
+                  {wallet.freshness.label}
+                </button>
+                <div style={{ fontSize: 10.5, color: 'var(--fg-faint)', marginTop: 2, lineHeight: 1.35 }}>
+                  {wallet.freshness.reason}
+                </div>
+              </div>
+              {wallet.freshness.source && (
+                <span className="chip" style={{ fontSize: 9.5, flexShrink: 0, textTransform: 'capitalize' }}>
+                  {wallet.freshness.source}
+                </span>
+              )}
+            </div>
+          )}
+
           {/* Actions */}
           <div style={{ display: 'flex', gap: 7, marginTop: 'auto', flexWrap: 'wrap' }}>
+            {wallet.freshness && wallet.freshness.status !== 'ignored' && (
+              <button
+                onClick={() => wallet.freshness_mode === 'manual' ? onConfirmFreshness(wallet.id) : onUpload()}
+                style={{
+                  flex: 1, height: 30, borderRadius: 8, minWidth: 92,
+                  background: 'var(--accent-soft)', border: '1px solid var(--laccent)',
+                  color: 'var(--laccent)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                {wallet.freshness_mode === 'manual' ? 'Confirm balance' : 'Upload statement'}
+              </button>
+            )}
             <button
               onClick={() => onEdit(wallet)}
               style={{
@@ -224,6 +270,37 @@ export default function WalletCard({ wallet, onEdit, onDelete }: WalletCardProps
         cancelText="Cancel"
         variant="destructive"
       />
+      <Dialog open={showHistory} onOpenChange={setShowHistory}>
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader><DialogTitle>{wallet.icon || '•'} {wallet.name} freshness</DialogTitle></DialogHeader>
+          <div style={{ padding: '2px 0 8px' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: wallet.freshness ? FRESHNESS_COLORS[wallet.freshness.status] : 'var(--fg)' }}>
+              {wallet.freshness?.label}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 3 }}>{wallet.freshness?.reason}</div>
+          </div>
+          <div>
+            <div className="eyebrow" style={{ marginBottom: 8 }}>Recent updates</div>
+            {history.length === 0 ? (
+              <div style={{ padding: '18px 0', fontSize: 12, color: 'var(--fg-faint)' }}>No statement or confirmation history yet.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 320, overflowY: 'auto' }}>
+                {history.map(item => (
+                  <div key={item.id} style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid var(--card-border)', background: 'var(--surface-subtle)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, textTransform: 'capitalize', color: item.status === 'success' ? 'var(--pos)' : 'var(--neg)' }}>{item.source} · {item.status}</span>
+                      <span className="num" style={{ fontSize: 10.5, color: 'var(--fg-faint)' }}>{new Date(item.uploaded_at).toLocaleString()}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 4 }}>
+                      {item.covered_through ? `Covered through ${item.covered_through}` : 'Coverage unavailable'} · {item.imported_count} imported · {item.duplicate_count} duplicates
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

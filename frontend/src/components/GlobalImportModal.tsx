@@ -377,6 +377,17 @@ export default function GlobalImportModal({ userId, onClose, onDone }: Props) {
                   <div className="num" style={{ fontSize: 16, fontWeight: 600, color: 'var(--laccent)' }}>{fmt(meta.closingBalance)}</div>
                 </div>
               )}
+              {meta.coveredThrough && (
+                <div style={{ flex: 1, minWidth: 145 }}>
+                  <div className="eyebrow" style={{ marginBottom: 2 }}>Statement coverage</div>
+                  <div className="num" style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>
+                    {meta.coveredFrom && meta.coveredFrom !== meta.coveredThrough ? `${meta.coveredFrom} – ` : ''}{meta.coveredThrough}
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--fg-faint)', marginTop: 2 }}>
+                    {meta.coverageConfidence ?? 'medium'} confidence
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

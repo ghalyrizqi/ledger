@@ -7,7 +7,7 @@ import { execSync } from 'child_process';
 import { DatabaseService } from '../database/database.service';
 import { parseVision } from '../import/parsers/vision.parser';
 import { parseBCA } from '../import/parsers/bca.parser';
-import { parsePermata } from '../import/parsers/permata.parser';
+import { parsePermata, parsePermataText } from '../import/parsers/permata.parser';
 import { parseJago } from '../import/parsers/jago.parser';
 import { parseGoPay } from '../import/parsers/gopay.parser';
 import { parseStockbitTC, isStockbitTC } from '../import/parsers/stockbit-tc.parser';
@@ -33,17 +33,27 @@ async function pdfToText(buf: Buffer): Promise<string> {
 // Route a PDF to the same tuned, layout-aware parser the web upload flow uses
 // (they need `pdftotext -layout`, now installed) instead of the bank-agnostic
 // looseParse fallback — sniff which bank it is from footer/header text.
-function parseWithBankParser(tmpPath: string, ownAccounts: string[]): ParsedTx[] | null {
+function parseWithBankParser(tmpPath: string, ownAccounts: string[], extractedText = ''): ParsedTx[] | null {
   if (isStockbitTC(tmpPath)) return parseStockbitTC(tmpPath);
 
-  let raw: string;
-  try {
-    raw = execSync(`pdftotext -layout "${tmpPath}" -`, { encoding: 'utf8' });
-  } catch {
-    return null; // poppler missing or unreadable PDF — fall back to looseParse
+  let raw = extractedText;
+  if (!raw) {
+    try {
+      raw = execSync(`pdftotext -layout "${tmpPath}" -`, { encoding: 'utf8' });
+    } catch {
+      return null;
+    }
   }
 
-  if (/PermataBank|PT Bank Permata/i.test(raw)) return parsePermata(tmpPath, ownAccounts);
+  if (/PermataBank|PT Bank Permata/i.test(raw)) {
+    // pdf-parse is always available in the backend. Use its extracted text
+    // when poppler/pdftotext is unavailable on the host.
+    try {
+      return parsePermata(tmpPath, ownAccounts);
+    } catch {
+      return parsePermataText(raw, ownAccounts);
+    }
+  }
   if (/PT\s*Bank\s*Central\s*Asia|KlikBCA|BCA\s*Mobile/i.test(raw)) return parseBCA(tmpPath, ownAccounts);
   if (/Bank\s*Jago/i.test(raw)) return parseJago(tmpPath, ownAccounts);
   if (/GoPay/i.test(raw) && /Total pemasukan/i.test(raw)) return parseGoPay(tmpPath, ownAccounts);
@@ -63,6 +73,7 @@ interface Pending {
   userId: number;      // ledger user id (1=Ghaly, 2=Intan)
   drafts: Draft[];
   createdAt: number;
+  isStatement: boolean;
 }
 
 const PENDING_TTL_MS = 60 * 60 * 1000;   // drop drafts nobody confirmed after 1h
@@ -205,7 +216,8 @@ export class TelegramService implements OnModuleInit {
         const tmpPath = join(tmpdir(), `ledger-tg-${Date.now()}.pdf`);
         writeFileSync(tmpPath, buf);
         try {
-          parsed = parseWithBankParser(tmpPath, ownAccounts) ?? looseParse(await pdfToText(buf));
+          const extractedText = await pdfToText(buf);
+          parsed = parseWithBankParser(tmpPath, ownAccounts, extractedText) ?? looseParse(extractedText);
         } finally {
           if (existsSync(tmpPath)) unlinkSync(tmpPath);
         }
@@ -214,8 +226,9 @@ export class TelegramService implements OnModuleInit {
       }
       drafts = parsed
         // drop garbage from OCR misreads: non-positive or absurd amounts
-        // (> Rp 100 bn for a personal ledger is a parse error, e.g. concatenated digits)
-        .filter(p => p.amount > 0 && p.amount <= 100_000_000_000)
+        // (> Rp 1 bn is held back for manual review; statement OCR commonly
+        // concatenates reference/balance digits into a multi-billion amount)
+        .filter(p => p.amount > 0 && p.amount <= 1_000_000_000)
         .map(p => ({
           date: this.safeDate(p.date), type: p.type, amount: p.amount,
           description: p.description, isTransfer: p.isTransfer,
@@ -231,7 +244,7 @@ export class TelegramService implements OnModuleInit {
         `Kalau struk, foto yang lebih jelas. Atau ketik manual: <code>50000 kopi</code>`);
       return;
     }
-    await this.presentConfirm(chatId, userId, drafts);
+    await this.presentConfirm(chatId, userId, drafts, true);
   }
 
   private async download(fileId: string): Promise<Buffer> {
@@ -241,9 +254,9 @@ export class TelegramService implements OnModuleInit {
   }
 
   // ---- confirm flow -------------------------------------------------------
-  private async presentConfirm(chatId: number, userId: number, drafts: Draft[]) {
+  private async presentConfirm(chatId: number, userId: number, drafts: Draft[], isStatement = false) {
     const pid = Math.random().toString(36).slice(2, 8);
-    this.pending.set(pid, { userId, drafts, createdAt: Date.now() });
+    this.pending.set(pid, { userId, drafts, createdAt: Date.now(), isStatement });
     this.gcPending();
 
     const lines = drafts.slice(0, 20).map(d => {
@@ -297,6 +310,16 @@ export class TelegramService implements OnModuleInit {
     if (action === 'w') {
       const walletId = extra === '0' ? null : parseInt(extra, 10);
       const inserted = await this.saveDrafts(p.userId, p.drafts, walletId);
+      if (p.isStatement && walletId) {
+        const dates = p.drafts.map(d => d.date).filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date)).sort();
+        await this.db.run(
+          `INSERT INTO wallet_imports
+            (user_id, wallet_id, source, status, covered_from, covered_through, imported_count, duplicate_count)
+           VALUES (?, ?, 'telegram', ?, ?, ?, ?, ?)`,
+          [p.userId, walletId, dates.length ? 'success' : 'partial', dates[0] ?? null,
+           dates[dates.length - 1] ?? null, inserted, Math.max(0, p.drafts.length - inserted)],
+        );
+      }
       this.pending.delete(pid);
       const total = p.drafts.reduce((s, d) => s + (d.type === 'income' ? d.amount : -d.amount), 0);
       const net = (total >= 0 ? '➕' : '➖') + ' ' + formatRupiah(Math.abs(total));
@@ -310,7 +333,6 @@ export class TelegramService implements OnModuleInit {
   // ---- persistence (mirrors ImportService.confirm dedup + balance) --------
   private async saveDrafts(userId: number, drafts: Draft[], walletId: number | null): Promise<number> {
     let inserted = 0;
-    let delta = 0;
     for (const d of drafts) {
       const dup = await this.db.get(
         `SELECT id FROM transactions WHERE user_id=? AND wallet_id IS NOT DISTINCT FROM ?
@@ -324,10 +346,6 @@ export class TelegramService implements OnModuleInit {
         [userId, walletId, d.type, d.amount, d.category, d.description, d.date, d.isTransfer ? 1 : 0],
       );
       inserted++;
-      if (!d.isTransfer) delta += d.type === 'income' ? d.amount : -d.amount;
-    }
-    if (walletId && delta !== 0) {
-      await this.db.run('UPDATE wallets SET balance = balance + ? WHERE id = ?', [delta, walletId]);
     }
     return inserted;
   }

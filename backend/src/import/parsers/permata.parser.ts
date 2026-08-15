@@ -25,7 +25,9 @@ function parsePermataAmount(raw: string): number {
   return parseFloat(raw.replace(/,/g, '')) || 0;
 }
 
-function inferType(text: string): 'income' | 'expense' {
+const MAX_PLAUSIBLE_AMOUNT = 1_000_000_000;
+
+function inferType(text: string): 'income' | 'expense' | null {
   const upper = text.toUpperCase();
   for (const kw of EXPENSE_KEYWORDS) {
     if (upper.includes(kw.toUpperCase())) return 'expense';
@@ -33,11 +35,16 @@ function inferType(text: string): 'income' | 'expense' {
   for (const kw of INCOME_KEYWORDS) {
     if (upper.includes(kw.toUpperCase())) return 'income';
   }
-  return 'expense';
+  return null;
 }
 
 export function parsePermata(filePath: string, ownAccounts: string[]): ParsedTx[] {
   const raw = execSync(`pdftotext -layout "${filePath}" -`, { encoding: 'utf8' });
+
+  return parsePermataText(raw, ownAccounts);
+}
+
+export function parsePermataText(raw: string, ownAccounts: string[]): ParsedTx[] {
 
   const txs: ParsedTx[] = [];
   const lines = raw.split('\n');
@@ -47,9 +54,18 @@ export function parsePermata(filePath: string, ownAccounts: string[]): ParsedTx[
   let afterAmount = false; // true while we're on reference/continuation lines after an amount
 
   const flush = (amount: number, rawLine: string) => {
-    if (!currentDate || amount <= 0) return;
+    if (!currentDate || amount <= 0 || amount > MAX_PLAUSIBLE_AMOUNT) {
+      descBuffer = [];
+      afterAmount = true;
+      return;
+    }
     const fullText = [...descBuffer, rawLine].join(' ');
     const type = inferType(fullText);
+    if (!type || /TBK\s+Permata\s+ME\s*::|peserta penjaminan|PermataBank\.com/i.test(fullText)) {
+      descBuffer = [];
+      afterAmount = true;
+      return;
+    }
     const lowerText = fullText.toLowerCase();
     const isTransfer = ownAccounts.some(acc => lowerText.includes(acc.toLowerCase()))
       || /pencairan\s+reksa\s+dana|\bbibit\b|\bstockbit\b|\bovo\b|gopay[a-z]*|\bshopeepay\b/i.test(fullText);

@@ -37,6 +37,9 @@ export interface PreviewMeta {
   closingBalance?: number;
   gainAmt?: number;
   gainPct?: number;
+  coveredFrom?: string;
+  coveredThrough?: string;
+  coverageConfidence?: 'high' | 'medium' | 'low';
 }
 
 export type BankType = 'bca' | 'permata' | 'jago' | 'stockbit' | 'dana' | 'shopee' | 'ovo' | 'bibit' | 'gopay';
@@ -177,6 +180,7 @@ export class ImportService {
             if (bcaMeta.openingBalance !== undefined) meta = { ...meta, openingBalance: bcaMeta.openingBalance };
             if (bcaMeta.mutasiCr !== undefined) meta = { ...meta, totalInflow: bcaMeta.mutasiCr };
             if (bcaMeta.mutasiDb !== undefined) meta = { ...meta, totalOutflow: bcaMeta.mutasiDb };
+            if (bcaMeta.coveredThrough) meta = { ...meta, coveredFrom: bcaMeta.coveredFrom, coveredThrough: bcaMeta.coveredThrough, coverageConfidence: 'high' };
           } else if (bankType === 'permata') {
             parsed = parsePermata(tmpPath, ownAccounts);
           } else if (bankType === 'jago') {
@@ -219,6 +223,17 @@ export class ImportService {
       const category = autoCategory(tx.description, tx.type, tx.isTransfer);
       rows.push({ ...tx, category, walletId });
     }
+    if (rows.length > 0) {
+      const dates = rows.map(row => row.date).filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date)).sort();
+      if (dates.length > 0) {
+        meta = {
+          ...meta,
+          coveredFrom: meta.coveredFrom ?? dates[0],
+          coveredThrough: meta.coveredThrough ?? dates[dates.length - 1],
+          coverageConfidence: meta.coverageConfidence ?? 'medium',
+        };
+      }
+    }
     return { rows, meta };
   }
 
@@ -228,12 +243,15 @@ export class ImportService {
     meta?: PreviewMeta,
   ): Promise<{ inserted: number }> {
     let inserted = 0;
-    const walletDeltas = new Map<number, number>();
+    const walletIds = new Set(rows.map(row => row.walletId));
+    const insertedByWallet = new Map<number, number>();
+
+    for (const walletId of walletIds) {
+      const wallet = await this.db.get('SELECT user_id FROM wallets WHERE id = ?', [walletId]);
+      if (!wallet || Number(wallet.user_id) !== userId) throw new BadRequestException('Wallet does not belong to this user');
+    }
 
     for (const row of rows) {
-      const delta = row.type === 'income' ? row.amount : -row.amount;
-      walletDeltas.set(row.walletId, (walletDeltas.get(row.walletId) ?? 0) + delta);
-
       // Deduplicate: skip if same wallet+date+amount+type+description already exists (case-insensitive)
       const existing = await this.db.get(
         `SELECT id FROM transactions WHERE user_id = ? AND wallet_id = ? AND date = ? AND amount = ? AND type = ? AND LOWER(description) = LOWER(?)`,
@@ -247,13 +265,31 @@ export class ImportService {
         [userId, row.walletId, row.type, row.amount, row.category, row.description, row.date, row.isTransfer ? 1 : 0],
       );
       inserted++;
+      insertedByWallet.set(row.walletId, (insertedByWallet.get(row.walletId) ?? 0) + 1);
     }
 
-    for (const [walletId, delta] of walletDeltas) {
+    for (const walletId of walletIds) {
+      const walletRows = rows.filter(row => row.walletId === walletId);
+      const dates = walletRows.map(row => row.date).filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date)).sort();
+      const coveredFrom = meta?.coveredFrom ?? dates[0] ?? null;
+      const coveredThrough = meta?.coveredThrough ?? dates[dates.length - 1] ?? null;
       if (meta?.closingBalance !== undefined) {
-        await this.db.run('UPDATE wallets SET balance = ? WHERE id = ?', [meta.closingBalance, walletId]);
-      } else if (delta !== 0) {
-        await this.db.run('UPDATE wallets SET balance = balance + ? WHERE id = ?', [delta, walletId]);
+        const closingDate = rows
+          .filter(row => row.walletId === walletId)
+          .reduce((latest, row) => row.date > latest ? row.date : latest, '');
+        const tx = await this.db.get(
+          `SELECT COALESCE(SUM(CASE
+             WHEN type = 'income' THEN amount
+             WHEN type = 'expense' THEN -amount
+             ELSE 0
+           END), 0) AS net
+           FROM transactions WHERE wallet_id = ? AND date <= ?`,
+          [walletId, closingDate],
+        );
+        // Store the offset that makes the computed balance on the statement's
+        // closing date equal the bank-provided closing balance.
+        await this.db.run('UPDATE wallets SET balance = ? WHERE id = ?',
+          [Number(meta.closingBalance) - Number(tx?.net || 0), walletId]);
       }
 
       if (meta?.gainAmt !== undefined && meta?.gainPct !== undefined) {
@@ -262,6 +298,15 @@ export class ImportService {
           [meta.gainAmt, meta.gainPct, walletId],
         );
       }
+
+      const walletInserted = insertedByWallet.get(walletId) ?? 0;
+      await this.db.run(
+        `INSERT INTO wallet_imports
+          (user_id, wallet_id, source, status, covered_from, covered_through, closing_balance, imported_count, duplicate_count)
+         VALUES (?, ?, 'web', ?, ?, ?, ?, ?, ?)`,
+        [userId, walletId, coveredThrough ? 'success' : 'partial', coveredFrom, coveredThrough,
+         meta?.closingBalance ?? null, walletInserted, Math.max(0, walletRows.length - walletInserted)],
+      );
     }
 
     return { inserted };

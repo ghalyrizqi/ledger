@@ -171,6 +171,8 @@ export interface BCAMeta {
   mutasiCr?: number;
   mutasiDb?: number;
   closingBalance?: number;
+  coveredFrom?: string;
+  coveredThrough?: string;
 }
 
 export function extractBCAMeta(filePath: string): BCAMeta {
@@ -181,10 +183,24 @@ export function extractBCAMeta(filePath: string): BCAMeta {
     return m ? parseFloat(m[1].replace(/,/g, '')) : undefined;
   }
 
+  const compact = raw.replace(/\s/g, '');
+  const period = compact.match(/(JANUARI|FEBRUARI|MARET|APRIL|MEI|JUNI|JULI|AGUSTUS|SEPTEMBER|OKTOBER|NOVEMBER|DESEMBER)(\d{4})/i);
+  let coveredFrom: string | undefined;
+  let coveredThrough: string | undefined;
+  if (period) {
+    const month = MONTH_MAP[period[1].toUpperCase()];
+    const year = Number(period[2]);
+    const mm = String(month).padStart(2, '0');
+    coveredFrom = `${year}-${mm}-01`;
+    coveredThrough = `${year}-${mm}-${String(new Date(Date.UTC(year, month, 0)).getUTCDate()).padStart(2, '0')}`;
+  }
+
   return {
     openingBalance: extract(/SALDO\s*AWAL\s*[:\s]+([\d,]+\.\d{2})/i),
     mutasiCr:       extract(/MUTASI\s*CR\s*[:\s]+([\d,]+\.\d{2})/i),
     mutasiDb:       extract(/MUTASI\s*DB\s*[:\s]+([\d,]+\.\d{2})/i),
     closingBalance: extract(/SALDO\s*AKHIR\s*[:\s]+([\d,]+\.\d{2})/i),
+    coveredFrom,
+    coveredThrough,
   };
 }

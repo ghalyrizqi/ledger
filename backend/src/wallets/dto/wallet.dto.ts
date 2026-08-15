@@ -9,6 +9,11 @@ export class CreateWalletDto {
     color?: string;
     bank_type?: BankType;
     account_number?: string | null;
+    freshness_enabled?: boolean;
+    freshness_mode?: 'statement' | 'manual';
+    update_frequency?: 'weekly' | 'monthly' | 'manual';
+    expected_day?: number;
+    grace_days?: number;
 }
 
 export class UpdateWalletDto {
@@ -21,4 +26,9 @@ export class UpdateWalletDto {
     account_number?: string | null;
     gain_amt?: number | null;
     gain_pct?: number | null;
+    freshness_enabled?: boolean;
+    freshness_mode?: 'statement' | 'manual';
+    update_frequency?: 'weekly' | 'monthly' | 'manual';
+    expected_day?: number;
+    grace_days?: number;
 }

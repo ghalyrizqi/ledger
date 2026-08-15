@@ -69,10 +69,44 @@ export interface Wallet {
     account_number?: string | null;
     gain_amt?: number | null;
     gain_pct?: number | null;
+    freshness_enabled: boolean;
+    freshness_mode: 'statement' | 'manual';
+    update_frequency: 'weekly' | 'monthly' | 'manual';
+    expected_day: number;
+    grace_days: number;
+    last_confirmed_at?: string | null;
+    freshness?: WalletFreshness;
     created_at: string;
 }
 
+export type FreshnessStatus = 'up_to_date' | 'due_soon' | 'needs_update' | 'never_uploaded' | 'review_needed' | 'manual' | 'ignored';
+
+export interface WalletFreshness {
+    status: FreshnessStatus;
+    label: string;
+    coveredThrough?: string | null;
+    lastUploadAt?: string | null;
+    nextDueAt?: string | null;
+    daysUntilDue?: number | null;
+    source?: 'web' | 'telegram' | 'manual' | null;
+    latestImportStatus?: 'success' | 'partial' | 'failed' | 'rejected' | null;
+    reason: string;
+}
+
+export interface WalletFreshnessSummary {
+    total: number;
+    upToDate: number;
+    dueSoon: number;
+    needsUpdate: number;
+    neverUploaded: number;
+    reviewNeeded: number;
+    walletsNeedingAttention: Wallet[];
+}
+
 export interface PreviewMeta {
+    coveredFrom?: string;
+    coveredThrough?: string;
+    coverageConfidence?: 'high' | 'medium' | 'low';
     closingBalance?: number;
     gainAmt?: number;
     gainPct?: number;

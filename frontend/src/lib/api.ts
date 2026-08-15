@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { User, Transaction, FinancialSummary, Category, MonthlyAnalytics, Wallet, WalletSummary, OverallBalance, InitialBalance, MonthlyBalance, BalanceCrosscheck, ParsedTx, PreviewMeta } from '@/types';
+import { User, Transaction, FinancialSummary, Category, MonthlyAnalytics, Wallet, WalletSummary, OverallBalance, InitialBalance, MonthlyBalance, BalanceCrosscheck, ParsedTx, PreviewMeta, WalletFreshnessSummary } from '@/types';
 
 // Same-origin by default: the backend serves this built UI and mounts the API
 // under /api, so one address (SSH tunnel / Tailscale / etc.) serves everything.
@@ -147,6 +147,21 @@ export const getWalletSummary = async (userId: number): Promise<WalletSummary> =
 
 export const getOverallBalance = async (userId: number): Promise<OverallBalance> => {
     const response = await api.get('/wallets/overall-balance', { params: { userId } });
+    return response.data;
+};
+
+export const getWalletFreshnessSummary = async (userId: number): Promise<WalletFreshnessSummary> => {
+    const response = await api.get('/wallets/freshness-summary', { params: { userId } });
+    return response.data;
+};
+
+export const confirmWalletFreshness = async (id: number): Promise<Wallet> => {
+    const response = await api.post(`/wallets/${id}/confirm-freshness`);
+    return response.data;
+};
+
+export const getWalletImportHistory = async (id: number): Promise<any[]> => {
+    const response = await api.get(`/wallets/${id}/imports`);
     return response.data;
 };
 

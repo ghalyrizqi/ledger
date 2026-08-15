@@ -21,6 +21,21 @@ export class WalletsController {
         return this.walletsService.getOverallBalance(parseInt(userId));
     }
 
+    @Get('freshness-summary')
+    getFreshnessSummary(@Query('userId') userId: string) {
+        return this.walletsService.getFreshnessSummary(parseInt(userId));
+    }
+
+    @Get(':id/imports')
+    getImportHistory(@Param('id') id: string) {
+        return this.walletsService.getImportHistory(parseInt(id));
+    }
+
+    @Post(':id/confirm-freshness')
+    confirmFreshness(@Param('id') id: string) {
+        return this.walletsService.confirmFreshness(parseInt(id));
+    }
+
     @Get(':id')
     getWallet(@Param('id') id: string) {
         return this.walletsService.getWallet(parseInt(id));

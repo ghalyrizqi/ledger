@@ -76,8 +76,25 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
                 account_number TEXT,
                 gain_amt       NUMERIC,
                 gain_pct       NUMERIC,
+                freshness_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                freshness_mode TEXT NOT NULL DEFAULT 'statement',
+                update_frequency TEXT NOT NULL DEFAULT 'monthly',
+                expected_day   INTEGER NOT NULL DEFAULT 7,
+                grace_days     INTEGER NOT NULL DEFAULT 0,
+                last_confirmed_at TIMESTAMPTZ,
+                freshness_initialized BOOLEAN NOT NULL DEFAULT FALSE,
                 created_at     TIMESTAMPTZ DEFAULT NOW()
             );
+        `);
+
+        await this.pool.query(`
+            ALTER TABLE wallets ADD COLUMN IF NOT EXISTS freshness_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+            ALTER TABLE wallets ADD COLUMN IF NOT EXISTS freshness_mode TEXT NOT NULL DEFAULT 'statement';
+            ALTER TABLE wallets ADD COLUMN IF NOT EXISTS update_frequency TEXT NOT NULL DEFAULT 'monthly';
+            ALTER TABLE wallets ADD COLUMN IF NOT EXISTS expected_day INTEGER NOT NULL DEFAULT 7;
+            ALTER TABLE wallets ADD COLUMN IF NOT EXISTS grace_days INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE wallets ADD COLUMN IF NOT EXISTS last_confirmed_at TIMESTAMPTZ;
+            ALTER TABLE wallets ADD COLUMN IF NOT EXISTS freshness_initialized BOOLEAN NOT NULL DEFAULT FALSE;
         `);
 
         await this.pool.query(`
@@ -107,6 +124,34 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
                 updated_at TIMESTAMPTZ DEFAULT NOW(),
                 UNIQUE (user_id, year, month)
             );
+        `);
+
+        await this.pool.query(`
+            CREATE TABLE IF NOT EXISTS wallet_imports (
+                id              SERIAL PRIMARY KEY,
+                user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                wallet_id       INTEGER NOT NULL REFERENCES wallets(id) ON DELETE CASCADE,
+                source          TEXT NOT NULL CHECK (source IN ('web', 'telegram', 'manual')),
+                status          TEXT NOT NULL CHECK (status IN ('success', 'partial', 'failed', 'rejected')),
+                uploaded_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                covered_from    TEXT,
+                covered_through TEXT,
+                closing_balance NUMERIC,
+                imported_count  INTEGER NOT NULL DEFAULT 0,
+                duplicate_count INTEGER NOT NULL DEFAULT 0,
+                error_message   TEXT,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_wallet_imports_wallet_uploaded
+                ON wallet_imports(wallet_id, uploaded_at DESC);
+        `);
+
+        await this.pool.query(`
+            UPDATE wallets
+            SET freshness_mode = CASE WHEN type IN ('cash', 'other') THEN 'manual' ELSE 'statement' END,
+                update_frequency = CASE WHEN type = 'ewallet' THEN 'weekly' WHEN type IN ('cash', 'other') THEN 'manual' ELSE 'monthly' END
+                , freshness_initialized = TRUE
+            WHERE freshness_initialized = FALSE;
         `);
 
         console.log('✅ PostgreSQL schema ready');

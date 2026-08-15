@@ -112,6 +112,11 @@ export default function WalletForm({ wallet, isOpen, onClose, onSubmit, userId }
     const [icon, setIcon] = useState('');
     const [color, setColor] = useState('');
     const [bankType, setBankType] = useState<'bca' | 'permata' | 'jago' | 'stockbit' | 'dana' | 'shopee' | 'ovo' | 'bibit' | 'gopay' | ''>('');
+    const [freshnessEnabled, setFreshnessEnabled] = useState(true);
+    const [freshnessMode, setFreshnessMode] = useState<'statement' | 'manual'>('statement');
+    const [updateFrequency, setUpdateFrequency] = useState<'weekly' | 'monthly' | 'manual'>('monthly');
+    const [expectedDay, setExpectedDay] = useState(7);
+    const [graceDays, setGraceDays] = useState(0);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
@@ -122,6 +127,11 @@ export default function WalletForm({ wallet, isOpen, onClose, onSubmit, userId }
             setIcon(wallet.icon || '');
             setColor(wallet.color || COLOR_OPTIONS[1]);
             setBankType((wallet.bank_type as any) || '');
+            setFreshnessEnabled(wallet.freshness_enabled ?? true);
+            setFreshnessMode(wallet.freshness_mode ?? 'statement');
+            setUpdateFrequency(wallet.update_frequency ?? 'monthly');
+            setExpectedDay(wallet.expected_day ?? 7);
+            setGraceDays(wallet.grace_days ?? 0);
         } else {
             const defaultType = WALLET_TYPES[0];
             setName('');
@@ -130,11 +140,19 @@ export default function WalletForm({ wallet, isOpen, onClose, onSubmit, userId }
             setIcon(defaultType.icon);
             setColor(defaultType.color);
             setBankType('');
+            setFreshnessEnabled(true);
+            setFreshnessMode('statement');
+            setUpdateFrequency('monthly');
+            setExpectedDay(7);
+            setGraceDays(0);
         }
     }, [wallet, isOpen]);
 
     const handleTypeChange = (newType: string) => {
         setType(newType as 'bank' | 'ewallet' | 'cash' | 'other');
+        const manual = newType === 'cash' || newType === 'other';
+        setFreshnessMode(manual ? 'manual' : 'statement');
+        setUpdateFrequency(manual ? 'manual' : newType === 'ewallet' ? 'weekly' : 'monthly');
         const typeConfig = WALLET_TYPES.find(t => t.value === newType);
         if (typeConfig && !wallet) {
             setIcon(typeConfig.icon);
@@ -155,6 +173,11 @@ export default function WalletForm({ wallet, isOpen, onClose, onSubmit, userId }
                 color: color || undefined,
                 bank_type: bankType || null,
                 account_number: null,
+                freshness_enabled: freshnessEnabled,
+                freshness_mode: freshnessMode,
+                update_frequency: updateFrequency,
+                expected_day: expectedDay,
+                grace_days: graceDays,
             } as any);
             handleClose();
         } catch {
@@ -305,6 +328,47 @@ export default function WalletForm({ wallet, isOpen, onClose, onSubmit, userId }
                                 );
                             })}
                         </div>
+                    </div>
+
+                    <div className="space-y-3" style={{ padding: 14, borderRadius: 12, border: '1px solid var(--card-border)', background: 'var(--surface-subtle)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                            <div>
+                                <div className="text-sm font-medium">Freshness tracking</div>
+                                <div style={{ fontSize: 11, color: 'var(--fg-faint)', marginTop: 2 }}>Show when this wallet needs an update.</div>
+                            </div>
+                            <input type="checkbox" checked={freshnessEnabled} onChange={e => setFreshnessEnabled(e.target.checked)} />
+                        </div>
+                        {freshnessEnabled && (
+                            <>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">Update schedule</label>
+                                    <Select value={updateFrequency} onValueChange={value => {
+                                        const frequency = value as 'weekly' | 'monthly' | 'manual';
+                                        setUpdateFrequency(frequency);
+                                        setFreshnessMode(frequency === 'manual' ? 'manual' : 'statement');
+                                    }}>
+                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="weekly">Weekly statement</SelectItem>
+                                            <SelectItem value="monthly">Monthly statement</SelectItem>
+                                            <SelectItem value="manual">Manual balance confirmation</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                {updateFrequency === 'monthly' && (
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium">Due day</label>
+                                            <Input type="number" min={1} max={28} value={expectedDay} onChange={e => setExpectedDay(Number(e.target.value))} />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium">Grace days</label>
+                                            <Input type="number" min={0} max={30} value={graceDays} onChange={e => setGraceDays(Number(e.target.value))} />
+                                        </div>
+                                    </div>
+                                )}
+                            </>
+                        )}
                     </div>
 
                     <DialogFooter>

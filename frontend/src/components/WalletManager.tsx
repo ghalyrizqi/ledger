@@ -1,13 +1,14 @@
 
 import { useState, useEffect } from 'react';
 import { Wallet } from '@/types';
-import { getWallets, createWallet, updateWallet, deleteWallet } from '@/lib/api';
+import { getWallets, createWallet, updateWallet, deleteWallet, confirmWalletFreshness } from '@/lib/api';
 import WalletCard from './WalletCard';
 import WalletForm from './WalletForm';
 
 interface WalletManagerProps {
   userId: number;
   refreshTrigger?: number;
+  onUpload: () => void;
 }
 
 function PlusIcon() {
@@ -18,11 +19,12 @@ function PlusIcon() {
   );
 }
 
-export default function WalletManager({ userId, refreshTrigger }: WalletManagerProps) {
+export default function WalletManager({ userId, refreshTrigger, onUpload }: WalletManagerProps) {
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingWallet, setEditingWallet] = useState<Wallet | undefined>();
   const [isLoading, setIsLoading] = useState(true);
+  const [filter, setFilter] = useState<'all' | 'attention' | 'current' | 'manual'>('all');
 
   useEffect(() => { loadWallets(); }, [userId, refreshTrigger]);
 
@@ -45,6 +47,7 @@ export default function WalletManager({ userId, refreshTrigger }: WalletManagerP
     await deleteWallet(id); await loadWallets();
   };
   const handleEdit = (wallet: Wallet) => { setEditingWallet(wallet); setIsFormOpen(true); };
+  const handleConfirmFreshness = async (id: number) => { await confirmWalletFreshness(id); await loadWallets(); };
   const handleCloseForm = () => { setIsFormOpen(false); setEditingWallet(undefined); };
 
   return (
@@ -75,6 +78,20 @@ export default function WalletManager({ userId, refreshTrigger }: WalletManagerP
           </button>
         </div>
       </div>
+
+      {!isLoading && wallets.length > 0 && (
+        <div className="seg" style={{ display: 'flex', width: 'fit-content', marginBottom: 16, borderRadius: 999, flexWrap: 'wrap' }}>
+          {([
+            ['all', 'All'], ['attention', 'Needs attention'], ['current', 'Up to date'], ['manual', 'Manual'],
+          ] as const).map(([value, label]) => (
+            <button key={value} onClick={() => setFilter(value)} style={{
+              height: 30, padding: '0 13px', borderRadius: 999, border: 0, cursor: 'pointer', fontSize: 11.5,
+              background: filter === value ? 'var(--card)' : 'transparent', color: filter === value ? 'var(--fg)' : 'var(--fg-muted)',
+              boxShadow: filter === value ? '0 0 0 1px var(--card-border)' : 'none',
+            }}>{label}</button>
+          ))}
+        </div>
+      )}
 
       {/* Loading */}
       {isLoading ? (
@@ -130,12 +147,20 @@ export default function WalletManager({ userId, refreshTrigger }: WalletManagerP
           gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
           gap: 16,
         }}>
-          {wallets.map(w => (
+          {wallets.filter(w => {
+            const status = w.freshness?.status;
+            if (filter === 'current') return status === 'up_to_date';
+            if (filter === 'manual') return w.freshness_mode === 'manual';
+            if (filter === 'attention') return ['due_soon', 'needs_update', 'never_uploaded', 'review_needed', 'manual'].includes(status || '');
+            return true;
+          }).map(w => (
             <WalletCard
               key={w.id}
               wallet={w}
               onEdit={handleEdit}
               onDelete={handleDelete}
+              onConfirmFreshness={handleConfirmFreshness}
+              onUpload={onUpload}
             />
           ))}
         </div>

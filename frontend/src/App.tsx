@@ -28,6 +28,7 @@ import Dashboard from '@/components/Dashboard';
 import WalletManager from '@/components/WalletManager';
 import UserManager from '@/components/UserManager';
 import BalanceCrosscheckComponent from '@/components/BalanceCrosscheckComponent';
+import WalletFreshnessSummary from '@/components/WalletFreshnessSummary';
 import ImportTransactions from '@/components/ImportTransactions';
 import GlobalImportModal from '@/components/GlobalImportModal';
 import Sidebar from '@/components/Sidebar';
@@ -334,6 +335,12 @@ export default function App() {
                     year={selectedMonth !== 'all' ? parseInt(selectedMonth.split('-')[0]) : undefined}
                     month={selectedMonth !== 'all' ? parseInt(selectedMonth.split('-')[1]) : undefined}
                   />
+                  <WalletFreshnessSummary
+                    userId={selectedUserId}
+                    refreshTrigger={walletRefreshKey}
+                    onReview={() => setActiveView('wallets')}
+                    onUpload={() => setIsGlobalImportOpen(true)}
+                  />
                   <Dashboard userId={selectedUserId} />
                   <CategoryBreakdown userId={selectedUserId} transactions={transactions} />
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
@@ -350,7 +357,11 @@ export default function App() {
                     <span className="eyebrow">Your accounts</span>
                     <h1 className="display-heading" style={{ fontSize: 24, marginTop: 4 }}>Wallets</h1>
                   </div>
-                  <WalletManager userId={selectedUserId} refreshTrigger={walletRefreshKey} />
+                  <WalletManager
+                    userId={selectedUserId}
+                    refreshTrigger={walletRefreshKey}
+                    onUpload={() => setIsGlobalImportOpen(true)}
+                  />
                 </div>
               )}
 
