@@ -68,11 +68,11 @@ const FRESHNESS_COLORS: Record<string, string> = {
 
 export default function WalletCard({ wallet, onEdit, onDelete, onConfirmFreshness, onUpload }: WalletCardProps) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
 
-  const openHistory = async () => {
-    setShowHistory(true);
+  const openDetails = async () => {
+    setShowDetails(true);
     try { setHistory(await getWalletImportHistory(wallet.id)); } catch { setHistory([]); }
   };
 
@@ -101,9 +101,13 @@ export default function WalletCard({ wallet, onEdit, onDelete, onConfirmFreshnes
     <>
       <div
         className="glass glass-card"
+        role="button"
+        tabIndex={0}
+        onClick={openDetails}
+        onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') openDetails(); }}
         style={{
           display: 'flex', flexDirection: 'column',
-          minHeight: 158, position: 'relative', overflow: 'hidden',
+          minHeight: 150, position: 'relative', overflow: 'hidden', cursor: 'pointer',
           border: isNeg
             ? '1px solid color-mix(in oklch, var(--neg) 40%, transparent)'
             : `1px solid color-mix(in oklch, ${color} 40%, transparent)`,
@@ -194,89 +198,14 @@ export default function WalletCard({ wallet, onEdit, onDelete, onConfirmFreshnes
           </div>
 
           {wallet.freshness && (
-            <div style={{ position: 'relative', padding: '10px 11px', borderRadius: 10, background: 'var(--surface-subtle)', border: '1px solid var(--card-border)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                <span style={{ fontSize: 11.5, fontWeight: 700, color: FRESHNESS_COLORS[wallet.freshness.status] }}>
-                  {wallet.freshness.label}
-                </span>
-                {wallet.freshness.source && (
-                  <span className="chip" style={{ fontSize: 9.5, textTransform: 'capitalize' }}>{wallet.freshness.source}</span>
-                )}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 10px', marginTop: 8, fontSize: 10.5 }}>
-                <span style={{ color: 'var(--fg-faint)' }}>Data through</span>
-                <span className="num" style={{ color: 'var(--fg)', textAlign: 'right' }}>{formatDate(wallet.freshness.coveredThrough)}</span>
-                <span style={{ color: 'var(--fg-faint)', fontWeight: 600 }}>Latest refresh</span>
-                <span className="num" style={{ color: 'var(--fg)', textAlign: 'right', fontWeight: 700 }}>
-                  {wallet.freshness.lastUploadAt ? formatDate(wallet.freshness.lastUploadAt, true) : 'Never refreshed'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10, marginTop: 7 }}>
-                <div style={{ fontSize: 10.5, color: 'var(--fg-faint)', lineHeight: 1.35 }}>
-                  {wallet.freshness.reason}
-                </div>
-                <button onClick={openHistory} style={{ padding: 0, border: 0, background: 'transparent', color: 'var(--laccent)', cursor: 'pointer', fontSize: 10.5, whiteSpace: 'nowrap' }}>
-                  History
-                </button>
-              </div>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 7, marginTop: 'auto', fontSize: 10.5, color: 'var(--fg-faint)' }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: FRESHNESS_COLORS[wallet.freshness.status] }} />
+              <span>Last refreshed</span>
+              <span className="num" style={{ color: 'var(--fg-muted)', fontWeight: 600 }}>
+                {wallet.freshness.lastUploadAt ? formatDate(wallet.freshness.lastUploadAt, true) : 'Never'}
+              </span>
             </div>
           )}
-
-          {/* Actions */}
-          <div style={{ display: 'flex', gap: 7, marginTop: 'auto', flexWrap: 'wrap' }}>
-            {wallet.freshness && wallet.freshness.status !== 'ignored' && (
-              <button
-                onClick={() => wallet.freshness_mode === 'manual' ? onConfirmFreshness(wallet.id) : onUpload()}
-                style={{
-                  flex: 1, height: 30, borderRadius: 8, minWidth: 92,
-                  background: 'var(--accent-soft)', border: '1px solid var(--laccent)',
-                  color: 'var(--laccent)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer',
-                }}
-              >
-                {wallet.freshness_mode === 'manual' ? 'Confirm balance' : 'Upload statement'}
-              </button>
-            )}
-            <button
-              onClick={() => onEdit(wallet)}
-              style={{
-                flex: 1, height: 30, borderRadius: 8,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                background: 'transparent', border: '1px solid var(--card-border)',
-                color: 'var(--fg-muted)', fontSize: 11.5, fontWeight: 500, cursor: 'pointer',
-                transition: 'border-color 0.12s, color 0.12s',
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.borderColor = 'var(--laccent)';
-                e.currentTarget.style.color = 'var(--laccent)';
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.borderColor = 'var(--card-border)';
-                e.currentTarget.style.color = 'var(--fg-muted)';
-              }}
-            >
-              <EditIcon /> Edit
-            </button>
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              style={{
-                flex: 1, height: 30, borderRadius: 8,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                background: 'transparent', border: '1px solid var(--card-border)',
-                color: 'var(--neg)', fontSize: 11.5, fontWeight: 500, cursor: 'pointer',
-                transition: 'background 0.12s, border-color 0.12s',
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.background = 'var(--neg-soft)';
-                e.currentTarget.style.borderColor = 'var(--neg)';
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.background = 'transparent';
-                e.currentTarget.style.borderColor = 'var(--card-border)';
-              }}
-            >
-              <TrashIcon /> Delete
-            </button>
-          </div>
         </div>
       </div>
 
@@ -290,14 +219,30 @@ export default function WalletCard({ wallet, onEdit, onDelete, onConfirmFreshnes
         cancelText="Cancel"
         variant="destructive"
       />
-      <Dialog open={showHistory} onOpenChange={setShowHistory}>
+      <Dialog open={showDetails} onOpenChange={setShowDetails}>
         <DialogContent className="sm:max-w-[520px]">
-          <DialogHeader><DialogTitle>{wallet.icon || '•'} {wallet.name} freshness</DialogTitle></DialogHeader>
-          <div style={{ padding: '2px 0 8px' }}>
+          <DialogHeader><DialogTitle>{wallet.icon || '•'} {wallet.name}</DialogTitle></DialogHeader>
+          <div style={{ padding: '2px 0 8px', borderBottom: '1px solid var(--card-border)' }}>
+            <div className="num" style={{ fontSize: 24, fontWeight: 700, color: isNeg ? 'var(--neg)' : 'var(--fg)' }}>{formatCurrency(wallet.balance)}</div>
             <div style={{ fontSize: 13, fontWeight: 600, color: wallet.freshness ? FRESHNESS_COLORS[wallet.freshness.status] : 'var(--fg)' }}>
               {wallet.freshness?.label}
             </div>
             <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 3 }}>{wallet.freshness?.reason}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '5px 12px', marginTop: 12, fontSize: 11.5 }}>
+              <span style={{ color: 'var(--fg-faint)' }}>Data through</span>
+              <span className="num" style={{ textAlign: 'right' }}>{formatDate(wallet.freshness?.coveredThrough)}</span>
+              <span style={{ color: 'var(--fg-faint)' }}>Last refreshed</span>
+              <span className="num" style={{ textAlign: 'right' }}>{wallet.freshness?.lastUploadAt ? formatDate(wallet.freshness.lastUploadAt, true) : 'Never'}</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
+              {wallet.freshness?.status !== 'ignored' && (
+                <button onClick={() => { setShowDetails(false); wallet.freshness_mode === 'manual' ? onConfirmFreshness(wallet.id) : onUpload(); }} style={{ height: 32, padding: '0 14px', borderRadius: 999, border: 0, background: 'var(--laccent)', color: '#fff', cursor: 'pointer', fontSize: 11.5, fontWeight: 600 }}>
+                  {wallet.freshness_mode === 'manual' ? 'Count / confirm balance' : 'Upload statement'}
+                </button>
+              )}
+              <button onClick={() => { setShowDetails(false); onEdit(wallet); }} style={{ height: 32, padding: '0 13px', borderRadius: 999, border: '1px solid var(--card-border)', background: 'transparent', color: 'var(--fg-muted)', cursor: 'pointer', fontSize: 11.5 }}><EditIcon /> Edit wallet</button>
+              <button onClick={() => { setShowDetails(false); setShowDeleteConfirm(true); }} style={{ height: 32, padding: '0 13px', borderRadius: 999, border: '1px solid var(--card-border)', background: 'transparent', color: 'var(--neg)', cursor: 'pointer', fontSize: 11.5 }}><TrashIcon /> Delete</button>
+            </div>
           </div>
           <div>
             <div className="eyebrow" style={{ marginBottom: 8 }}>Recent updates</div>
