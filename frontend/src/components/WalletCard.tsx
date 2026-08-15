@@ -81,6 +81,15 @@ export default function WalletCard({ wallet, onEdit, onDelete, onConfirmFreshnes
     return `${sign}Rp ${Math.abs(n).toLocaleString('id-ID')}`;
   };
 
+  const formatDate = (value?: string | null, withTime = false) => {
+    if (!value) return 'No data yet';
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00`) : new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString('en-GB', withTime
+      ? { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }
+      : { day: 'numeric', month: 'short', year: 'numeric' });
+  };
+
   const isNeg = wallet.balance < 0;
   const color = wallet.color || 'var(--laccent)';
   const colorRgb = wallet.color ? hexToRgb(wallet.color) : null;
@@ -185,20 +194,29 @@ export default function WalletCard({ wallet, onEdit, onDelete, onConfirmFreshnes
           </div>
 
           {wallet.freshness && (
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
-              <div style={{ minWidth: 0 }}>
-                <button onClick={openHistory} style={{ padding: 0, border: 0, background: 'transparent', cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: FRESHNESS_COLORS[wallet.freshness.status] }}>
+            <div style={{ position: 'relative', padding: '10px 11px', borderRadius: 10, background: 'var(--surface-subtle)', border: '1px solid var(--card-border)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: FRESHNESS_COLORS[wallet.freshness.status] }}>
                   {wallet.freshness.label}
-                </button>
-                <div style={{ fontSize: 10.5, color: 'var(--fg-faint)', marginTop: 2, lineHeight: 1.35 }}>
+                </span>
+                {wallet.freshness.source && (
+                  <span className="chip" style={{ fontSize: 9.5, textTransform: 'capitalize' }}>{wallet.freshness.source}</span>
+                )}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 10px', marginTop: 8, fontSize: 10.5 }}>
+                <span style={{ color: 'var(--fg-faint)' }}>Last data</span>
+                <span className="num" style={{ color: 'var(--fg)', textAlign: 'right' }}>{formatDate(wallet.freshness.coveredThrough)}</span>
+                <span style={{ color: 'var(--fg-faint)' }}>Last update</span>
+                <span className="num" style={{ color: 'var(--fg)', textAlign: 'right' }}>{formatDate(wallet.freshness.lastUploadAt, true)}</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10, marginTop: 7 }}>
+                <div style={{ fontSize: 10.5, color: 'var(--fg-faint)', lineHeight: 1.35 }}>
                   {wallet.freshness.reason}
                 </div>
+                <button onClick={openHistory} style={{ padding: 0, border: 0, background: 'transparent', color: 'var(--laccent)', cursor: 'pointer', fontSize: 10.5, whiteSpace: 'nowrap' }}>
+                  History
+                </button>
               </div>
-              {wallet.freshness.source && (
-                <span className="chip" style={{ fontSize: 9.5, flexShrink: 0, textTransform: 'capitalize' }}>
-                  {wallet.freshness.source}
-                </span>
-              )}
             </div>
           )}
 

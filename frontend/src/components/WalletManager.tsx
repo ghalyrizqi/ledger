@@ -24,7 +24,6 @@ export default function WalletManager({ userId, refreshTrigger, onUpload }: Wall
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingWallet, setEditingWallet] = useState<Wallet | undefined>();
   const [isLoading, setIsLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'attention' | 'current' | 'manual'>('all');
 
   useEffect(() => { loadWallets(); }, [userId, refreshTrigger]);
 
@@ -78,20 +77,6 @@ export default function WalletManager({ userId, refreshTrigger, onUpload }: Wall
           </button>
         </div>
       </div>
-
-      {!isLoading && wallets.length > 0 && (
-        <div className="seg" style={{ display: 'flex', width: 'fit-content', marginBottom: 16, borderRadius: 999, flexWrap: 'wrap' }}>
-          {([
-            ['all', 'All'], ['attention', 'Needs attention'], ['current', 'Up to date'], ['manual', 'Manual'],
-          ] as const).map(([value, label]) => (
-            <button key={value} onClick={() => setFilter(value)} style={{
-              height: 30, padding: '0 13px', borderRadius: 999, border: 0, cursor: 'pointer', fontSize: 11.5,
-              background: filter === value ? 'var(--card)' : 'transparent', color: filter === value ? 'var(--fg)' : 'var(--fg-muted)',
-              boxShadow: filter === value ? '0 0 0 1px var(--card-border)' : 'none',
-            }}>{label}</button>
-          ))}
-        </div>
-      )}
 
       {/* Loading */}
       {isLoading ? (
@@ -147,13 +132,7 @@ export default function WalletManager({ userId, refreshTrigger, onUpload }: Wall
           gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
           gap: 16,
         }}>
-          {wallets.filter(w => {
-            const status = w.freshness?.status;
-            if (filter === 'current') return status === 'up_to_date';
-            if (filter === 'manual') return w.freshness_mode === 'manual';
-            if (filter === 'attention') return ['due_soon', 'needs_update', 'never_uploaded', 'review_needed', 'manual'].includes(status || '');
-            return true;
-          }).map(w => (
+          {wallets.map(w => (
             <WalletCard
               key={w.id}
               wallet={w}
