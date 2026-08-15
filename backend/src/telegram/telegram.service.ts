@@ -212,11 +212,15 @@ export class TelegramService implements OnModuleInit {
       } else {
         parsed = await parseVision(buf, mime, 'Telegram', ownAccounts);
       }
-      drafts = parsed.map(p => ({
-        date: p.date, type: p.type, amount: p.amount,
-        description: p.description, isTransfer: p.isTransfer,
-        category: autoCategory(p.description, p.type, p.isTransfer),
-      }));
+      drafts = parsed
+        // drop garbage from OCR misreads: non-positive or absurd amounts
+        // (> Rp 100 bn for a personal ledger is a parse error, e.g. concatenated digits)
+        .filter(p => p.amount > 0 && p.amount <= 100_000_000_000)
+        .map(p => ({
+          date: this.safeDate(p.date), type: p.type, amount: p.amount,
+          description: p.description, isTransfer: p.isTransfer,
+          category: autoCategory(p.description, p.type, p.isTransfer),
+        }));
     } catch (e) {
       this.log.error(`parse failed (${mime}): ${e}`);
     }
@@ -359,6 +363,13 @@ export class TelegramService implements OnModuleInit {
   private today(): string {
     // WIB date as YYYY-MM-DD (transactions.date is stored as text)
     return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+  }
+
+  // Guard against OCR/parse misreads (e.g. "2026-07-76") that would poison the
+  // TEXT date column and crash analytics casts. Valid YYYY-MM-DD calendar date
+  // passes through; anything else falls back to today.
+  private safeDate(d: string): string {
+    return /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(d || '') ? d : this.today();
   }
 
   private gcPending() {
