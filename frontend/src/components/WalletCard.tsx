@@ -79,6 +79,9 @@ export default function WalletCard({ wallet, onEdit, onDelete }: WalletCardProps
         style={{
           display: 'flex', flexDirection: 'column',
           minHeight: 158, position: 'relative', overflow: 'hidden',
+          border: isNeg
+            ? '1px solid color-mix(in oklch, var(--neg) 40%, transparent)'
+            : `1px solid color-mix(in oklch, ${color} 40%, transparent)`,
         }}
       >
         {/* Decorative radial background glow */}

@@ -35,7 +35,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Calendar, ChevronDown } from 'lucide-react';
 
-type View = 'overview' | 'wallets' | 'transactions' | 'analytics';
+type View = 'overview' | 'wallets' | 'transactions';
 
 export default function App() {
   const [users, setUsers] = useState<User[]>([]);
@@ -201,7 +201,6 @@ export default function App() {
               {activeView === 'overview' && 'Overview'}
               {activeView === 'wallets' && 'Wallets'}
               {activeView === 'transactions' && 'Transactions'}
-              {activeView === 'analytics' && 'Analytics'}
             </span>
           </div>
 
@@ -251,7 +250,6 @@ export default function App() {
               {/* ── OVERVIEW ── */}
               {activeView === 'overview' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-                  {/* Period label */}
                   <div>
                     <span className="eyebrow">Summary</span>
                     <h1 className="display-heading" style={{ fontSize: 24, marginTop: 4 }}>
@@ -260,28 +258,18 @@ export default function App() {
                         : new Date(selectedMonth + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
                     </h1>
                   </div>
-
-                  {/* Stat cards */}
                   <FinancialSummaryComponent summary={activeSummary} />
-
-                  {/* Balance crosscheck */}
                   <BalanceCrosscheckComponent
                     userId={selectedUserId}
                     year={selectedMonth !== 'all' ? parseInt(selectedMonth.split('-')[0]) : undefined}
                     month={selectedMonth !== 'all' ? parseInt(selectedMonth.split('-')[1]) : undefined}
                   />
-
-                  {/* Cashflow chart */}
                   <Dashboard userId={selectedUserId} />
-
-                  {/* Salary + Investment side-by-side */}
+                  <CategoryBreakdown userId={selectedUserId} transactions={transactions} />
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
                     <SalaryCard transactions={transactions} />
                     <InvestmentCard transactions={transactions} wallets={wallets} />
                   </div>
-
-                  {/* Category donut */}
-                  <CategoryBreakdown userId={selectedUserId} transactions={transactions} />
                 </div>
               )}
 
@@ -313,21 +301,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* ── ANALYTICS ── */}
-              {activeView === 'analytics' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-                  <div>
-                    <span className="eyebrow">Financial analytics</span>
-                    <h1 className="display-heading" style={{ fontSize: 24, marginTop: 4 }}>Analytics</h1>
-                  </div>
-                  <Dashboard userId={selectedUserId} />
-                  <CategoryBreakdown userId={selectedUserId} transactions={transactions} />
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
-                    <SalaryCard transactions={transactions} />
-                    <InvestmentCard transactions={transactions} wallets={wallets} />
-                  </div>
-                </div>
-              )}
             </>
           )}
         </main>

@@ -35,6 +35,7 @@ function StatCard({ label, value, hint, accent, accentSoft, icon }: StatCardProp
         display: 'flex', flexDirection: 'column', gap: 14,
         padding: '20px 22px',
         position: 'relative', overflow: 'hidden',
+        border: `1px solid color-mix(in oklch, ${accent} 40%, transparent)`,
       }}
     >
       {/* Background gradient glow */}
@@ -134,6 +135,9 @@ export default function FinancialSummaryComponent({ summary }: FinancialSummaryP
           flexWrap: 'wrap',
           position: 'relative',
           overflow: 'hidden',
+          border: savings >= 0
+            ? '1px solid color-mix(in oklch, var(--pos) 40%, transparent)'
+            : '1px solid color-mix(in oklch, var(--neg) 40%, transparent)',
         }}
       >
         {/* Subtle teal glow */}

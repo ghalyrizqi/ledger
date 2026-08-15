@@ -7,12 +7,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import {
-  LayoutDashboard, Wallet, List, BarChart2,
+  LayoutDashboard, Wallet, List,
   Upload, Plus, Sun, Moon, ChevronDown,
   Users, FolderOpen, FileUp, RefreshCw,
 } from 'lucide-react';
 
-type View = 'overview' | 'wallets' | 'transactions' | 'analytics';
+type View = 'overview' | 'wallets' | 'transactions';
 
 interface SidebarProps {
   users: User[];
@@ -63,7 +63,6 @@ const NAV_ITEMS: { id: View; label: string; Icon: React.ComponentType<{ classNam
   { id: 'overview',      label: 'Overview',      Icon: LayoutDashboard },
   { id: 'wallets',       label: 'Wallets',        Icon: Wallet },
   { id: 'transactions',  label: 'Transactions',   Icon: List },
-  { id: 'analytics',     label: 'Analytics',      Icon: BarChart2 },
 ];
 
 export default function Sidebar({
