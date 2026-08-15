@@ -15,8 +15,9 @@ Updated: 2026-08-15
 
 - `pdftotext -layout` is unavailable on this no-sudo host, so PDF ingestion
   currently falls back to pure-JavaScript `pdf-parse` plus loose parsing.
-- The public Cloudflare quick-tunnel URL rotates on restart, which also changes
-  the Google OIDC callback configuration requirement.
+- Tailscale Funnel is the public entry point at
+  `https://ledger.tail65ef82.ts.net`; its background configuration persists
+  across tailscaled restarts.
 
 ## Follow-ups
 
