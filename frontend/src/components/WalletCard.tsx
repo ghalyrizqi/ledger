@@ -204,10 +204,12 @@ export default function WalletCard({ wallet, onEdit, onDelete, onConfirmFreshnes
                 )}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 10px', marginTop: 8, fontSize: 10.5 }}>
-                <span style={{ color: 'var(--fg-faint)' }}>Last data</span>
+                <span style={{ color: 'var(--fg-faint)' }}>Data through</span>
                 <span className="num" style={{ color: 'var(--fg)', textAlign: 'right' }}>{formatDate(wallet.freshness.coveredThrough)}</span>
-                <span style={{ color: 'var(--fg-faint)' }}>Last update</span>
-                <span className="num" style={{ color: 'var(--fg)', textAlign: 'right' }}>{formatDate(wallet.freshness.lastUploadAt, true)}</span>
+                <span style={{ color: 'var(--fg-faint)', fontWeight: 600 }}>Latest refresh</span>
+                <span className="num" style={{ color: 'var(--fg)', textAlign: 'right', fontWeight: 700 }}>
+                  {wallet.freshness.lastUploadAt ? formatDate(wallet.freshness.lastUploadAt, true) : 'Never refreshed'}
+                </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10, marginTop: 7 }}>
                 <div style={{ fontSize: 10.5, color: 'var(--fg-faint)', lineHeight: 1.35 }}>
