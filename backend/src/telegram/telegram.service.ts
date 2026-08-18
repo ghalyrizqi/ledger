@@ -108,10 +108,12 @@ interface Pending {
   drafts: Draft[];
   createdAt: number;
   isStatement: boolean;
+  savedIds?: number[]; // set for auto-saved uploads → the "Batalkan" (undo) button
 }
 interface SaveResult {
   inserted: number;
-  ids: number[];
+  ids: number[];        // all matched rows (new + existing duplicates)
+  newIds: number[];     // only rows actually inserted this time (for undo)
 }
 
 const PENDING_TTL_MS = 60 * 60 * 1000;   // drop drafts nobody confirmed after 1h
@@ -648,6 +650,27 @@ export class TelegramService implements OnModuleInit {
     // Guess the wallet from the detected bank (PDF content) + file name.
     const suggested = (sourceName || bankHint) ? this.suggestWallet(sourceName, wallets, bankHint) : null;
 
+    // Confident detection on a statement upload → save immediately, no tap.
+    if (suggested && isStatement) {
+      const saved = await this.saveDrafts(userId, drafts, suggested.id);
+      await this.recordImport(userId, suggested.id, drafts, saved.inserted);
+      const total = drafts.reduce((s, d) => s + (d.type === 'income' ? d.amount : -d.amount), 0);
+      const net = (total >= 0 ? '➕' : '➖') + ' ' + formatRupiah(Math.abs(total));
+      const dupNote = drafts.length - saved.inserted > 0 ? ` (${drafts.length - saved.inserted} duplikat dilewati)` : '';
+      const body = head + lines.join('\n') + more +
+        `\n\n✅ Auto-tersimpan <b>${saved.inserted}</b> transaksi ke <b>${this.escapeHtml(suggested.name)}</b> (${net})${dupNote}.\n` +
+        `ID: <code>${saved.ids.map(id => `#${id}`).join(', ')}</code>`;
+      if (saved.newIds.length) {
+        this.pending.set(pid, { userId, drafts, createdAt: Date.now(), isStatement, savedIds: saved.newIds });
+        await this.send(chatId, body, { reply_markup: { inline_keyboard: [[
+          { text: '↩️ Batalkan', callback_data: `u:${pid}` },
+        ]] } });
+      } else {
+        await this.send(chatId, body);
+      }
+      return;
+    }
+
     const keyboard: any[][] = [];
     let prompt: string;
     if (wallets.length) {
@@ -782,16 +805,7 @@ export class TelegramService implements OnModuleInit {
     if (action === 'w') {
       const walletId = extra === '0' ? null : parseInt(extra, 10);
       const saved = await this.saveDrafts(p.userId, p.drafts, walletId);
-      if (p.isStatement && walletId) {
-        const dates = p.drafts.map(d => d.date).filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date)).sort();
-        await this.db.run(
-          `INSERT INTO wallet_imports
-            (user_id, wallet_id, source, status, covered_from, covered_through, imported_count, duplicate_count)
-           VALUES (?, ?, 'telegram', ?, ?, ?, ?, ?)`,
-          [p.userId, walletId, dates.length ? 'success' : 'partial', dates[0] ?? null,
-           dates[dates.length - 1] ?? null, saved.inserted, Math.max(0, p.drafts.length - saved.inserted)],
-        );
-      }
+      if (p.isStatement && walletId) await this.recordImport(p.userId, walletId, p.drafts, saved.inserted);
       this.pending.delete(pid);
       const total = p.drafts.reduce((s, d) => s + (d.type === 'income' ? d.amount : -d.amount), 0);
       const net = (total >= 0 ? '➕' : '➖') + ' ' + formatRupiah(Math.abs(total));
@@ -810,12 +824,33 @@ export class TelegramService implements OnModuleInit {
       await ack('Transfer tersimpan ✅');
       return;
     }
+    if (action === 'u') {                       // undo an auto-saved upload
+      if (!p.savedIds?.length) { await ack('Ga ada yang bisa dibatalkan'); return; }
+      await this.db.run('DELETE FROM transactions WHERE user_id=? AND id = ANY(?)', [p.userId, p.savedIds]);
+      this.pending.delete(pid);
+      await this.editText(chatId, q.message.message_id, `↩️ Dibatalkan — ${p.savedIds.length} transaksi dihapus.`);
+      await ack('Dibatalkan');
+      return;
+    }
+  }
+
+  // Record a statement import for the wallet-freshness tracking.
+  private async recordImport(userId: number, walletId: number, drafts: Draft[], insertedCount: number) {
+    const dates = drafts.map(d => d.date).filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date)).sort();
+    await this.db.run(
+      `INSERT INTO wallet_imports
+        (user_id, wallet_id, source, status, covered_from, covered_through, imported_count, duplicate_count)
+       VALUES (?, ?, 'telegram', ?, ?, ?, ?, ?)`,
+      [userId, walletId, dates.length ? 'success' : 'partial', dates[0] ?? null,
+       dates[dates.length - 1] ?? null, insertedCount, Math.max(0, drafts.length - insertedCount)],
+    );
   }
 
   // ---- persistence (mirrors ImportService.confirm dedup + balance) --------
   private async saveDrafts(userId: number, drafts: Draft[], walletId: number | null): Promise<SaveResult> {
     let inserted = 0;
     const ids: number[] = [];
+    const newIds: number[] = [];
     for (const d of drafts) {
       const targetWalletId = d.walletId ?? walletId;
       const dup = await this.db.get(
@@ -834,8 +869,9 @@ export class TelegramService implements OnModuleInit {
       );
       inserted++;
       ids.push(Number(created.id));
+      newIds.push(Number(created.id));
     }
-    return { inserted, ids };
+    return { inserted, ids, newIds };
   }
 
   // ---- helpers ------------------------------------------------------------
