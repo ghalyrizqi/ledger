@@ -4,7 +4,7 @@ import { ParsedTx } from '../import.service';
 // Indonesian month abbreviations used in Jago exports
 const JAGO_MONTHS: Record<string, number> = {
   Jan: 1, Feb: 2, Mar: 3, Apr: 4, Mei: 5, Jun: 6,
-  Jul: 7, Agu: 8, Sep: 9, Okt: 10, Nov: 11, Des: 12,
+  Jul: 7, Agu: 8, Agt: 8, Sep: 9, Okt: 10, Nov: 11, Des: 12,
 };
 
 function parseJagoAmount(raw: string): number {
@@ -33,6 +33,72 @@ function extractSource(line: string): string {
   const withoutAmounts = withoutDate.replace(/\s+[+-]?[\d.]+,\d{2}\s+[\d.]+,\d{2}\s*$/, '')
     .replace(/\s+[+-]?[\d.]+\s+[\d.]+,\d{2}\s*$/, '');
   return withoutAmounts.trim().replace(/\s{2,}/g, ' ').slice(0, 80);
+}
+
+function numberDuplicateDescriptions(txs: ParsedTx[]): ParsedTx[] {
+  const groupCount: Record<string, number> = {};
+  const groupIndex: Record<string, number> = {};
+  for (const tx of txs) {
+    const k = `${tx.date}|${tx.description}|${tx.amount}`;
+    groupCount[k] = (groupCount[k] ?? 0) + 1;
+  }
+  return txs.map(tx => {
+    const k = `${tx.date}|${tx.description}|${tx.amount}`;
+    if (groupCount[k] <= 1) return tx;
+    groupIndex[k] = (groupIndex[k] ?? 0) + 1;
+    return { ...tx, description: `${tx.description} (${groupIndex[k]})` };
+  });
+}
+
+// Parse the reading-order text returned by pdf-parse. Jago's PDF stores each
+// transaction as date, time, details, then a signed amount and balance. This
+// path keeps Telegram PDF ingestion working on hosts without poppler/pdftotext.
+export function parseJagoText(raw: string, ownAccounts: string[]): ParsedTx[] {
+  const lines = raw.split('\n').map(line => line.trim());
+  const txs: ParsedTx[] = [];
+  const DATE_RE = /^(\d{2})\s+(Jan|Feb|Mar|Apr|Mei|Jun|Jul|Agu|Agt|Sep|Okt|Nov|Des)\s+(\d{4})$/;
+  const AMOUNT_RE = /([+-][\d.]+(?:,\d{2})?)\s+[\d.]+(?:,\d{2})?$/;
+  const HEADER_RE = /^(Tanggal & Waktu|Pockets Transactions History|Halaman \d+ dari \d+)/i;
+
+  for (let i = 0; i < lines.length; i++) {
+    const dm = lines[i].match(DATE_RE);
+    if (!dm || !/^\d{2}\.\d{2}$/.test(lines[i + 1] || '')) continue;
+
+    const date = `${dm[3]}-${String(JAGO_MONTHS[dm[2]]).padStart(2, '0')}-${dm[1]}`;
+    const block: string[] = [];
+    let amountMatch: RegExpMatchArray | null = null;
+    let amountLine = '';
+    let j = i + 2;
+    for (; j < lines.length; j++) {
+      if (DATE_RE.test(lines[j]) && /^\d{2}\.\d{2}$/.test(lines[j + 1] || '')) break;
+      const match = lines[j].match(AMOUNT_RE);
+      if (match) {
+        amountMatch = match;
+        amountLine = lines[j];
+        break;
+      }
+      if (lines[j] && !HEADER_RE.test(lines[j])) block.push(lines[j]);
+    }
+    if (!amountMatch) continue;
+
+    const rawAmount = amountMatch[1];
+    const amount = parseJagoAmount(rawAmount);
+    if (amount <= 0) continue;
+    const type: 'income' | 'expense' = rawAmount.startsWith('+') ? 'income' : 'expense';
+    const fullText = block.join(' ');
+    const detail = fullText.match(/(?:Transfer\s+(?:Masuk|Keluar)|Pembayaran\s+(?:QRIS|dengan\s+Jago\s+Pay)|Isi\s+Saldo|Transaksi\s+POS|Biaya\s+(?:Transfer|dari\s+Kekurangan)|Cashback[^+\-]*)/i)?.[0];
+    const source = block.slice(0, 2).join(' ').replace(/\s{2,}/g, ' ').trim();
+    const description = (detail || source || 'Jago Transaction').slice(0, 100);
+
+    txs.push({
+      date, type, amount, description,
+      isTransfer: isOwnAccount(fullText, ownAccounts),
+      raw: `${lines[i]} ${lines[i + 1]} ${amountLine}`,
+    });
+    i = j;
+  }
+
+  return numberDuplicateDescriptions(txs);
 }
 
 export interface JagoMeta {
@@ -162,18 +228,5 @@ export function parseJago(filePath: string, ownAccounts: string[]): ParsedTx[] {
     }
   }
 
-  // Append counter suffix to identical (date, description, amount) groups so the
-  // preview deduplication key treats them as distinct transactions.
-  const groupCount: Record<string, number> = {};
-  const groupIndex: Record<string, number> = {};
-  for (const tx of txs) {
-    const k = `${tx.date}|${tx.description}|${tx.amount}`;
-    groupCount[k] = (groupCount[k] ?? 0) + 1;
-  }
-  return txs.map(tx => {
-    const k = `${tx.date}|${tx.description}|${tx.amount}`;
-    if (groupCount[k] <= 1) return tx;
-    groupIndex[k] = (groupIndex[k] ?? 0) + 1;
-    return { ...tx, description: `${tx.description} (${groupIndex[k]})` };
-  });
+  return numberDuplicateDescriptions(txs);
 }

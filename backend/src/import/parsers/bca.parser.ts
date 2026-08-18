@@ -10,6 +10,9 @@ function parseAmount(raw: string): number {
   return parseFloat(raw.replace(/,/g, ''));
 }
 
+// BCA prints two decimal places, with commas only when the amount reaches four digits.
+const AMOUNT_SOURCE = String.raw`(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2}`;
+
 // Patterns in description that mean money is going to/from own wallets/investment accounts → transfer
 const EWALLET_TOPUP_RE = /\bOVO\b|GOPAY[\s_]*TOPUP|FLAZZ[\s_]*BCA[\s_]*TOPUP|SHOPEEPAY|DANA\b|\bBIBIT\b|\bSTOCKBIT\b/i;
 
@@ -21,11 +24,13 @@ export function parseBCA(filePath: string, ownAccounts: string[]): ParsedTx[] {
 
   // Extract statement period from header
   let year = new Date().getFullYear();
+  let statementMonth: number | undefined;
   for (const line of raw.split('\n')) {
     const compact = line.replace(/\s/g, '');
     const m = compact.match(/(JANUARI|FEBRUARI|MARET|APRIL|MEI|JUNI|JULI|AGUSTUS|SEPTEMBER|OKTOBER|NOVEMBER|DESEMBER)(\d{4})/i);
     if (m) {
       year = parseInt(m[2]);
+      statementMonth = MONTH_MAP[m[1].toUpperCase()];
       break;
     }
   }
@@ -41,8 +46,17 @@ export function parseBCA(filePath: string, ownAccounts: string[]): ParsedTx[] {
   for (const line of raw.split('\n')) {
     const dateMatch = line.match(/^\s{0,14}(\d{2})\/(\d{2})\s/);
     if (dateMatch) {
-      if (cur) blocks.push(cur);
       const [, dd, mm] = dateMatch;
+      const numericMonth = Number(mm);
+      const numericDay = Number(dd);
+      const calendarDate = new Date(Date.UTC(year, numericMonth - 1, numericDay));
+      const isValidDate = calendarDate.getUTCFullYear() === year
+        && calendarDate.getUTCMonth() + 1 === numericMonth
+        && calendarDate.getUTCDate() === numericDay;
+      // Dates printed in headers/footers (for example the statement generation
+      // date) must never become transactions for a different statement month.
+      if (!isValidDate || (statementMonth !== undefined && numericMonth !== statementMonth)) continue;
+      if (cur) blocks.push(cur);
       cur = { date: `${year}-${mm}-${dd}`, lines: [line] };
     } else if (cur && line.trim()) {
       cur.lines.push(line);
@@ -60,7 +74,7 @@ export function parseBCA(filePath: string, ownAccounts: string[]): ParsedTx[] {
 
     // ── Amount detection ─────────────────────────────────────────────────
     // Debit: "23,000.00 DB" anywhere in the block
-    const debitMatch = allText.match(/([\d,]+\.\d{2})\s+DB/);
+    const debitMatch = allText.match(new RegExp(`(${AMOUNT_SOURCE})\\s+DB\\b`, 'i'));
     let amount: number;
     let type: 'income' | 'expense';
 
@@ -68,11 +82,13 @@ export function parseBCA(filePath: string, ownAccounts: string[]): ParsedTx[] {
       amount = parseAmount(debitMatch[1]);
       type = 'expense';
     } else {
-      // Credit: find first numeric amount that looks like a transaction amount
-      // Exclude reference codes (short numbers, "00000.00" prefixes)
-      const creditMatch = allText.match(/\b([\d]{1,3}(?:,\d{3})+\.\d{2})\b(?!\s*DB)/);
-      if (!creditMatch) continue;
-      amount = parseAmount(creditMatch[1]);
+      // Credit: skip BCA's zero-valued merchant/reference prefixes and use the
+      // first positive amount that is not marked as a debit.
+      const creditMatches = allText.matchAll(new RegExp(`\\b(${AMOUNT_SOURCE})\\b(?!\\s*DB\\b)`, 'gi'));
+      const creditAmount = Array.from(creditMatches, match => parseAmount(match[1]))
+        .find(candidate => candidate > 0);
+      if (creditAmount === undefined) continue;
+      amount = creditAmount;
       type = 'income';
     }
 
@@ -169,7 +185,9 @@ function detectTransfer(allText: string, lines: string[], ownAccounts: string[])
 export interface BCAMeta {
   openingBalance?: number;
   mutasiCr?: number;
+  mutasiCrCount?: number;
   mutasiDb?: number;
+  mutasiDbCount?: number;
   closingBalance?: number;
   coveredFrom?: string;
   coveredThrough?: string;
@@ -181,6 +199,15 @@ export function extractBCAMeta(filePath: string): BCAMeta {
   function extract(pattern: RegExp): number | undefined {
     const m = raw.match(pattern);
     return m ? parseFloat(m[1].replace(/,/g, '')) : undefined;
+  }
+
+  function extractCount(label: 'CR' | 'DB'): number | undefined {
+    const pattern = new RegExp(
+      `MUTASI\\s*${label}\\s*[:\\s]+${AMOUNT_SOURCE}\\s*(?:count\\s*)?\\(?\\s*(\\d+)\\s*\\)?`,
+      'i',
+    );
+    const match = raw.match(pattern);
+    return match ? Number(match[1]) : undefined;
   }
 
   const compact = raw.replace(/\s/g, '');
@@ -198,9 +225,41 @@ export function extractBCAMeta(filePath: string): BCAMeta {
   return {
     openingBalance: extract(/SALDO\s*AWAL\s*[:\s]+([\d,]+\.\d{2})/i),
     mutasiCr:       extract(/MUTASI\s*CR\s*[:\s]+([\d,]+\.\d{2})/i),
+    mutasiCrCount:  extractCount('CR'),
     mutasiDb:       extract(/MUTASI\s*DB\s*[:\s]+([\d,]+\.\d{2})/i),
+    mutasiDbCount:  extractCount('DB'),
     closingBalance: extract(/SALDO\s*AKHIR\s*[:\s]+([\d,]+\.\d{2})/i),
     coveredFrom,
     coveredThrough,
   };
+}
+
+export function isBCAStatementText(text: string): boolean {
+  const transactionSignatures = [
+    /TRSF\s+E-BANKING/i,
+    /FT(?:FVA|QRS|SCY)\/WS/i,
+    /TARIKAN\s+ATM/i,
+    /SALDO\s+AWAL/i,
+  ].filter(pattern => pattern.test(text)).length;
+  return /PT\s*Bank\s*Central\s*Asia|KlikBCA|BCA\s*Mobile/i.test(text)
+    || (/SALDO\s*AWAL/i.test(text)
+      && /MUTASI\s*CR/i.test(text)
+      && /MUTASI\s*DB/i.test(text)
+      && /SALDO\s*AKHIR/i.test(text))
+    || transactionSignatures >= 2;
+}
+
+export function reconcileBCA(txs: ParsedTx[], meta: BCAMeta): boolean {
+  const income = txs.filter(tx => tx.type === 'income');
+  const expense = txs.filter(tx => tx.type === 'expense');
+  const inflow = income.reduce((sum, tx) => sum + tx.amount, 0);
+  const outflow = expense.reduce((sum, tx) => sum + tx.amount, 0);
+  const amountMatches = (actual: number, expected?: number) => expected === undefined || Math.abs(actual - expected) < 0.005;
+  const countMatches = (actual: number, expected?: number) => expected === undefined || actual === expected;
+  const hasStatementTotals = meta.mutasiCr !== undefined && meta.mutasiDb !== undefined;
+  return hasStatementTotals
+    && countMatches(income.length, meta.mutasiCrCount)
+    && countMatches(expense.length, meta.mutasiDbCount)
+    && amountMatches(inflow, meta.mutasiCr)
+    && amountMatches(outflow, meta.mutasiDb);
 }

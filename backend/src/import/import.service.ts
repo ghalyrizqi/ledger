@@ -4,7 +4,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { execSync } from 'child_process';
 import { DatabaseService } from '../database/database.service';
-import { parseBCA, extractBCAMeta } from './parsers/bca.parser';
+import { parseBCA, extractBCAMeta, isBCAStatementText, reconcileBCA } from './parsers/bca.parser';
 import { parsePermata } from './parsers/permata.parser';
 import { parseJago, extractJagoMeta } from './parsers/jago.parser';
 import { parseStockbit, extractStockbitMeta, parseStockbitRDN } from './parsers/stockbit.parser';
@@ -40,6 +40,17 @@ export interface PreviewMeta {
   coveredFrom?: string;
   coveredThrough?: string;
   coverageConfidence?: 'high' | 'medium' | 'low';
+  reconciliation?: {
+    matched: boolean;
+    expectedIncomeCount?: number;
+    parsedIncomeCount: number;
+    expectedExpenseCount?: number;
+    parsedExpenseCount: number;
+    expectedInflow?: number;
+    parsedInflow: number;
+    expectedOutflow?: number;
+    parsedOutflow: number;
+  };
 }
 
 export type BankType = 'bca' | 'permata' | 'jago' | 'stockbit' | 'dana' | 'shopee' | 'ovo' | 'bibit' | 'gopay';
@@ -51,7 +62,7 @@ export class ImportService {
 
   private detectBankTypeFromText(text: string): BankType | null {
     // BCA: match logo text OR statement-specific keywords (TAHAPAN is BCA-exclusive)
-    if (/bank central asia|bca e-statement|pt\.?\s*bank central asia|tahapan\s*xpresi|rekening\s*tahapan/i.test(text)) return 'bca';
+    if (/bank central asia|bca e-statement|pt\.?\s*bank central asia|tahapan\s*xpresi|rekening\s*tahapan/i.test(text) || isBCAStatementText(text)) return 'bca';
     if (/bank permata|permatabank|pt\.?\s*bank permata/i.test(text)) return 'permata';
     if (/bank jago|pt\.?\s*jago/i.test(text)) return 'jago';
     if (/stockbit/i.test(text)) return 'stockbit';
@@ -181,6 +192,24 @@ export class ImportService {
             if (bcaMeta.mutasiCr !== undefined) meta = { ...meta, totalInflow: bcaMeta.mutasiCr };
             if (bcaMeta.mutasiDb !== undefined) meta = { ...meta, totalOutflow: bcaMeta.mutasiDb };
             if (bcaMeta.coveredThrough) meta = { ...meta, coveredFrom: bcaMeta.coveredFrom, coveredThrough: bcaMeta.coveredThrough, coverageConfidence: 'high' };
+            const incomeRows = parsed.filter(tx => tx.type === 'income');
+            const expenseRows = parsed.filter(tx => tx.type === 'expense');
+            const parsedInflow = incomeRows.reduce((sum, tx) => sum + tx.amount, 0);
+            const parsedOutflow = expenseRows.reduce((sum, tx) => sum + tx.amount, 0);
+            meta = {
+              ...meta,
+              reconciliation: {
+                matched: reconcileBCA(parsed, bcaMeta),
+                expectedIncomeCount: bcaMeta.mutasiCrCount,
+                parsedIncomeCount: incomeRows.length,
+                expectedExpenseCount: bcaMeta.mutasiDbCount,
+                parsedExpenseCount: expenseRows.length,
+                expectedInflow: bcaMeta.mutasiCr,
+                parsedInflow,
+                expectedOutflow: bcaMeta.mutasiDb,
+                parsedOutflow,
+              },
+            };
           } else if (bankType === 'permata') {
             parsed = parsePermata(tmpPath, ownAccounts);
           } else if (bankType === 'jago') {
@@ -242,6 +271,9 @@ export class ImportService {
     rows: PreviewRow[],
     meta?: PreviewMeta,
   ): Promise<{ inserted: number }> {
+    if (meta?.reconciliation?.matched === false) {
+      throw new BadRequestException('Statement totals/counts do not match the parsed transactions. Nothing was imported.');
+    }
     let inserted = 0;
     const walletIds = new Set(rows.map(row => row.walletId));
     const insertedByWallet = new Map<number, number>();

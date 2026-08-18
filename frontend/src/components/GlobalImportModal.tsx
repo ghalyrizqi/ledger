@@ -156,7 +156,7 @@ export default function GlobalImportModal({ userId, onClose, onDone }: Props) {
   const isParseDone = parseState === 'done';
   const isParseError = parseState === 'error';
   const showFallback = isParseError && files.length > 0 && fallbackWallets.length > 0;
-  const canImport = isParseDone && confirmState === 'idle' && rows.length > 0;
+  const canImport = isParseDone && confirmState === 'idle' && rows.length > 0 && meta.reconciliation?.matched !== false;
   const isConfirming = confirmState === 'confirming';
 
   const importBtnLabel = isConfirming
@@ -388,6 +388,28 @@ export default function GlobalImportModal({ userId, onClose, onDone }: Props) {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {isParseDone && meta.reconciliation?.matched === false && (
+            <div style={{
+              padding: '12px 14px', borderRadius: 10,
+              background: 'rgba(213,137,111,0.10)', border: '1px solid rgba(213,137,111,0.30)',
+              fontSize: 12, color: 'var(--neg)', lineHeight: 1.5,
+            }}>
+              <div style={{ fontWeight: 600, marginBottom: 3 }}>BCA statement did not reconcile — import is disabled.</div>
+              <div>
+                Credits: {meta.reconciliation.parsedIncomeCount}
+                {meta.reconciliation.expectedIncomeCount !== undefined && ` / ${meta.reconciliation.expectedIncomeCount}`} transactions,
+                {' '}{fmt(meta.reconciliation.parsedInflow)}
+                {meta.reconciliation.expectedInflow !== undefined && ` / ${fmt(meta.reconciliation.expectedInflow)}`} expected.
+              </div>
+              <div>
+                Debits: {meta.reconciliation.parsedExpenseCount}
+                {meta.reconciliation.expectedExpenseCount !== undefined && ` / ${meta.reconciliation.expectedExpenseCount}`} transactions,
+                {' '}{fmt(meta.reconciliation.parsedOutflow)}
+                {meta.reconciliation.expectedOutflow !== undefined && ` / ${fmt(meta.reconciliation.expectedOutflow)}`} expected.
+              </div>
             </div>
           )}
 

@@ -111,6 +111,17 @@ export interface PreviewMeta {
     closingBalance?: number;
     gainAmt?: number;
     gainPct?: number;
+    reconciliation?: {
+        matched: boolean;
+        expectedIncomeCount?: number;
+        parsedIncomeCount: number;
+        expectedExpenseCount?: number;
+        parsedExpenseCount: number;
+        expectedInflow?: number;
+        parsedInflow: number;
+        expectedOutflow?: number;
+        parsedOutflow: number;
+    };
 }
 
 export interface ParsedTx {
