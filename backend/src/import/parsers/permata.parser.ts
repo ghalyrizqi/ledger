@@ -15,6 +15,8 @@ const MONTH_NAMES = Object.keys(MONTH_MAP).join('|');
 const EXPENSE_KEYWORDS = [
   'TRF BIFAST KE', 'QR PAYMENT', 'Biaya Adm', 'Biaya adm',
   'TOPUP', 'PEMBAYARAN', 'Pembelian', 'Transfer Keluar', 'DEBIT', 'TBK Permata',
+  // bill/VA payments and card purchases
+  'PAY PLN', 'PAY VA', 'PAY PAY', 'Purchase',
 ];
 const INCOME_KEYWORDS = [
   // "PB DARI" = Permata's prefix for any incoming credit (payroll, transport
@@ -24,6 +26,11 @@ const INCOME_KEYWORDS = [
   'PB DARI', 'PB Bagi Hasil', 'Bagi Hasil', 'KREDITUR',
   'Transfer Masuk', 'TRF INCOMING', 'KREDIT', 'PAYROLL', 'Gaji',
 ];
+
+// A line that begins a NEW transaction (vs. a reference/ID continuation line).
+// Needed because statements list transactions back-to-back with no blank line,
+// so the row after an amount is often the next transaction's description.
+const TX_START_RE = /^(PB\s+DARI|PB\s+Bagi|TRF\s+BIFAST|TRF\s+INCOMING|QR\s+PAYMENT|Biaya\s+Adm|BIAYA\s+ADM|PAY\s+(PLN|PAY|VA)|Purchase|Pembelian|PEMBAYARAN)/i;
 
 function parsePermataAmount(raw: string): number {
   return parseFloat(raw.replace(/,/g, '')) || 0;
@@ -119,8 +126,13 @@ export function parsePermataText(raw: string, ownAccounts: string[]): ParsedTx[]
       continue;
     }
 
-    // After an amount, lines until the next blank are reference/ID lines — skip them
-    if (afterAmount) continue;
+    // After an amount, lines are reference/ID continuation — skip them, UNLESS
+    // the line clearly starts a new transaction (statements pack rows with no
+    // blank separator, so the next description follows an amount immediately).
+    if (afterAmount) {
+      if (!TX_START_RE.test(trimmed)) continue;
+      afterAmount = false;
+    }
 
     // Accumulate description text
     descBuffer.push(trimmed);
