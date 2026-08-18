@@ -7,10 +7,8 @@ interface Rule {
 }
 
 const INCOME_RULES: Rule[] = [
-  // PT Blue Bird Tbk = employer → all income from them is salary (base pay +
-  // the ~Rp 500k transport allowance both roll up to "Salary").
-  { pattern: /blue\s*bird|bluebird/i, category: 'Salary' },
-  { pattern: /\bgaji\b|salary|payroll|thr\b|rapel/i, category: 'Salary' },
+  // Salary incl. PT Blue Bird Tbk payroll (employer) + the ~Rp 500k transport allowance.
+  { pattern: /blue\s*bird|bluebird|\bgaji\b|salary|payroll|thr\b|rapel/i, category: 'Salary' },
   { pattern: /dividen|dividend/i, category: 'Dividend' },
   { pattern: /bibit|stockbit|investment\s*return/i, category: 'Investment Return' },
   { pattern: /bunga|interest\s*dep|jasa\s*giro/i, category: 'Investment Return' },
