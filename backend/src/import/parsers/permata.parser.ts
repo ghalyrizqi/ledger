@@ -15,8 +15,9 @@ const MONTH_NAMES = Object.keys(MONTH_MAP).join('|');
 const EXPENSE_KEYWORDS = [
   'TRF BIFAST KE', 'QR PAYMENT', 'Biaya Adm', 'Biaya adm',
   'TOPUP', 'PEMBAYARAN', 'Pembelian', 'Transfer Keluar', 'DEBIT', 'TBK Permata',
-  // bill/VA payments and card purchases
-  'PAY PLN', 'PAY VA', 'PAY PAY', 'Purchase',
+  // bill/VA payments + card purchases. 'PAY ' keeps the trailing space on
+  // purpose: it matches "PAY PLN/VA/…" but NOT "PAYROLL"/"PAYMENT" (income/QR).
+  'PAY ', 'Purchase',
 ];
 const INCOME_KEYWORDS = [
   // "PB DARI" = Permata's prefix for any incoming credit (payroll, transport
