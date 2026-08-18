@@ -17,7 +17,11 @@ const EXPENSE_KEYWORDS = [
   'TOPUP', 'PEMBAYARAN', 'Pembelian', 'Transfer Keluar', 'DEBIT', 'TBK Permata',
 ];
 const INCOME_KEYWORDS = [
-  'PB DARI KREDITUR', 'PB Bagi Hasil', 'Bagi Hasil', 'KREDITUR',
+  // "PB DARI" = Permata's prefix for any incoming credit (payroll, transport
+  // allowance, bagi hasil, transfers in). Keyword-specific lines like the
+  // "UANG TRANSPORT BBM" allowance have no other income marker, so this general
+  // prefix is what catches them.
+  'PB DARI', 'PB Bagi Hasil', 'Bagi Hasil', 'KREDITUR',
   'Transfer Masuk', 'TRF INCOMING', 'KREDIT', 'PAYROLL', 'Gaji',
 ];
 
